@@ -1,34 +1,27 @@
 import os
 import time
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.embeddings import OpenAIEmbeddings
 
 def get_embeddings():
     """
-    Get Google embeddings with increased timeout.
-    Falls back to OpenAI embeddings if Google API fails.
+    Get Google embeddings with retry and timeout handling.
+    Requires GOOGLE_API_KEY to be set in the environment.
     """
     api_key = os.getenv("GOOGLE_API_KEY")
-    if api_key:
-        try:
-            embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
-                google_api_key=api_key,
-                timeout=300  # 5 minutes
-            )
-            # Test embedding a small text to verify connection
-            embeddings.embed_documents(["test"])
-            return embeddings
-        except Exception as e:
-            print(f"Google embedding failed, falling back to OpenAI embeddings: {e}")
-    else:
-        print("GOOGLE_API_KEY not set, using OpenAI embeddings as fallback.")
-    # Fallback to OpenAI embeddings
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        raise ValueError("Neither GOOGLE_API_KEY nor OPENAI_API_KEY is set")
-    return OpenAIEmbeddings(openai_api_key=openai_api_key)
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY is not set. Please configure it in .env or Streamlit secrets.")
 
+    try:
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/embedding-001",
+            google_api_key=api_key,
+            timeout=300  # 5 minutes
+        )
+        # Test embedding a small text to verify connection
+        embeddings.embed_documents(["test"])
+        return embeddings
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize Google embeddings: {e}")
 
 def embed_with_retry(embeddings, texts, batch_size=20, max_retries=5, backoff_factor=2):
     """

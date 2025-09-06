@@ -7,8 +7,15 @@ from src.splitter import split_documents
 from src.vectorstore import build_vectorstore, load_vectorstore
 from src.qa_chain import build_qa_chain
 from src.extractor import extract_latest_psa
+from src import config
 
-load_dotenv()
+try:
+    if "GOOGLE_API_KEY" in st.secrets:
+        os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+
+except Exception:
+    # Local dev: fallback to .env file
+    load_dotenv()
 
 st.set_page_config(page_title="Prostate Research Assistant", layout="wide")
 st.title("🩺 Prostate Research Assistant — RAG")
