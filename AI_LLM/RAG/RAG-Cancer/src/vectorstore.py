@@ -1,32 +1,77 @@
 from langchain.vectorstores import Chroma
-from .embeddings import get_embeddings, embed_with_retry
+from .embeddings import get_embeddings, embed_with_retry, HuggingFaceEmbeddings, GoogleGenerativeAIEmbeddings
 import os
+import shutil
+import gc
 
-PERSIST_DIR = os.getenv("VECTOR_DB_DIR", "db")
+def get_persist_dir(embeddings):
+    """Return DB folder based on embedding provider."""
+    if isinstance(embeddings, GoogleGenerativeAIEmbeddings):
+        provider = "gemini"
+    elif isinstance(embeddings, HuggingFaceEmbeddings):
+        provider = "huggingface"
+    else:
+        provider = "unknown"
+    return os.path.join("db", provider)
 
-def build_vectorstore(documents, persist=True):
-    embeddings = get_embeddings()
+def safe_delete(path):
+    gc.collect()
     try:
-        # Extract texts from documents
-        texts = [doc.page_content for doc in documents]
-        # Embed with retry
-        embeddings_list = embed_with_retry(embeddings, texts)
-        # Create Chroma with pre-computed embeddings
-        chroma = Chroma.from_texts(
-            texts=texts,
-            embedding=embeddings,
-            metadatas=[doc.metadata for doc in documents],
-            persist_directory=PERSIST_DIR
-        )
-        if persist:
-            chroma.persist()
-        return chroma
-    except Exception as e:
-        print(f"Error building vectorstore: {e}")
-        raise e
+        shutil.rmtree(path)
+        print(f"Deleted old DB at {path}")
+    except PermissionError as pe:
+        print(f"⚠️ Permission error deleting {path}: {pe}")
+        return False
+    return True
+
+def build_vectorstore(documents, persist=True, force_rebuild=False):
+    embeddings = get_embeddings()
+    persist_dir = get_persist_dir(embeddings)
+
+    if force_rebuild and os.path.isdir(persist_dir):
+        safe_delete(persist_dir)
+
+    if os.path.isdir(persist_dir) and not force_rebuild:
+        try:
+            chroma = Chroma(persist_directory=persist_dir,
+                            embedding_function=embeddings)
+            chroma.similarity_search("test", k=1)
+            return chroma
+        except Exception as e:
+            if "dimension" in str(e).lower():
+                print(f"Dimension mismatch: {e}")
+                safe_delete(persist_dir)
+            else:
+                print(f"DB load failed ({e}), rebuilding...")
+
+    texts = [doc.page_content for doc in documents]
+    embed_with_retry(embeddings, texts)
+
+    chroma = Chroma.from_texts(
+        texts=texts,
+        embedding=embeddings,
+        metadatas=[doc.metadata for doc in documents],
+        persist_directory=persist_dir
+    )
+    if persist:
+        chroma.persist()
+    return chroma
 
 def load_vectorstore():
     embeddings = get_embeddings()
-    if not os.path.isdir(PERSIST_DIR):
+    persist_dir = get_persist_dir(embeddings)
+
+    if not os.path.isdir(persist_dir):
         return None
-    return Chroma(persist_directory=PERSIST_DIR, embedding_function=embeddings)
+    try:
+        chroma = Chroma(persist_directory=persist_dir, embedding_function=embeddings)
+        chroma.similarity_search("test", k=1)
+        return chroma
+    except Exception as e:
+        if "dimension" in str(e).lower():
+            print(f"Dimension mismatch detected: {e}. Deleting {persist_dir}")
+            safe_delete(persist_dir)
+            return None
+        else:
+            print(f"Error loading vectorstore: {e}")
+            return None

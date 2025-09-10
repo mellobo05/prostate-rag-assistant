@@ -1,27 +1,39 @@
 import os
 import time
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 def get_embeddings():
     """
-    Get Google embeddings with retry and timeout handling.
-    Requires GOOGLE_API_KEY to be set in the environment.
+    Get embeddings with fallback: First try Google Gemini API, then fallback to HuggingFace local embeddings.
+    Requires GOOGLE_API_KEY to be set in the environment for Gemini.
     """
     api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY is not set. Please configure it in .env or Streamlit secrets.")
 
+    # First, try Gemini API embeddings
+    if api_key:
+        try:
+            embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/embedding-001",
+                google_api_key=api_key,
+                timeout=300  # 5 minutes
+            )
+            # Test embedding a small text to verify connection
+            embeddings.embed_documents(["test"])
+            print("Using Google Gemini embeddings.")
+            return embeddings
+        except Exception as e:
+            print(f"Gemini API failed: {e}. Falling back to HuggingFace embeddings.")
+
+    # Fallback to HuggingFace local embeddings
     try:
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=api_key,
-            timeout=300  # 5 minutes
-        )
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         # Test embedding a small text to verify connection
         embeddings.embed_documents(["test"])
+        print("Using HuggingFace local embeddings.")
         return embeddings
     except Exception as e:
-        raise RuntimeError(f"Failed to initialize Google embeddings: {e}")
+        raise RuntimeError(f"Failed to initialize both Gemini and HuggingFace embeddings: {e}")
 
 def embed_with_retry(embeddings, texts, batch_size=20, max_retries=5, backoff_factor=2):
     """

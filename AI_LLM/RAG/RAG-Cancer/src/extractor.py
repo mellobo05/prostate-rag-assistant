@@ -24,12 +24,20 @@ def extract_data_from_pdf(pdf_path):
 def extract_latest_psa(search_results):
     """
     Extract the latest PSA value from search results.
+    Matches variations like:
+    - PSA: 5.2
+    - PSA 5.2 ng/mL
+    - Prostate Specific Antigen = 5.2
     """
     psa_values = []
+    psa_pattern = re.compile(
+        r"(?:PSA|Prostate\s*Specific\s*Antigen)[:\s=]*([0-9]+(?:\.[0-9]+)?)",
+        re.IGNORECASE
+    )
+
     for result in search_results:
-        text = result.page_content
-        # Look for PSA patterns like "PSA: 1.2" or "PSA 1.2 ng/mL"
-        matches = re.findall(r'PSA[:\s]*(\d+\.?\d*)', text, re.IGNORECASE)
+        text = result.page_content.replace("\n", " ")  # flatten line breaks
+        matches = psa_pattern.findall(text)
         for match in matches:
             try:
                 psa_values.append(float(match))
@@ -37,7 +45,8 @@ def extract_latest_psa(search_results):
                 pass
     
     if psa_values:
-        return f"{max(psa_values)} ng/mL"
+        latest = max(psa_values)  # assume highest = most recent
+        return f"{latest} ng/mL"
     return None
 
 # Path to the specific PDF
