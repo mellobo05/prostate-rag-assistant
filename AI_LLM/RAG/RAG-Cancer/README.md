@@ -40,6 +40,8 @@ A Retrieval-Augmented Generation (RAG) application for prostate cancer research 
 
 4. Ask questions in the text input field and get answers with source references.
 
+   Example: Ask "prostate test result" to find all PSA test results in the documents.
+
 ## Project Structure
 
 - `app.py`: Main Streamlit application

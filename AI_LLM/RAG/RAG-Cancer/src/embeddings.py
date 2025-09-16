@@ -1,7 +1,7 @@
 import os
 import time
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 def get_embeddings():
     """
@@ -18,8 +18,6 @@ def get_embeddings():
                 google_api_key=api_key,
                 timeout=300  # 5 minutes
             )
-            # Test embedding a small text to verify connection
-            embeddings.embed_documents(["test"])
             print("Using Google Gemini embeddings.")
             return embeddings
         except Exception as e:
