@@ -45,7 +45,17 @@ def build_vectorstore(documents, persist=True, force_rebuild=False):
                 print(f"DB load failed ({e}), rebuilding...")
 
     texts = [doc.page_content for doc in documents]
-    embed_with_retry(embeddings, texts)
+    
+    # Test embeddings quickly to ensure they work
+    try:
+        test_embeddings = embeddings.embed_documents(["test"])
+        print(f"Embeddings test successful, dimension: {len(test_embeddings[0])}")
+    except Exception as e:
+        print(f"Embeddings test failed: {e}")
+        # If embeddings fail, try to get HuggingFace fallback
+        from .embeddings import HuggingFaceEmbeddings
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        print("Switched to HuggingFace embeddings due to failure")
 
     chroma = Chroma.from_texts(
         texts=texts,

@@ -2,11 +2,14 @@ import os
 import time
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 def get_embeddings():
     """
-    Get embeddings with fallback: First try Google Gemini API, then fallback to HuggingFace local embeddings.
-    Requires GOOGLE_API_KEY to be set in the environment for Gemini.
+    Get embeddings with Gemini as primary option and HuggingFace as fallback.
     """
     api_key = os.getenv("GOOGLE_API_KEY")
 
@@ -16,24 +19,26 @@ def get_embeddings():
             embeddings = GoogleGenerativeAIEmbeddings(
                 model="models/embedding-001",
                 google_api_key=api_key,
-                timeout=300  # 5 minutes
+                timeout=5  # Very short timeout for quick fallback
             )
-            print("Using Google Gemini embeddings.")
+            # Quick test to see if it works
+            embeddings.embed_documents(["test"])
+            print("Using Google Gemini embeddings (primary).")
             return embeddings
         except Exception as e:
-            print(f"Gemini API failed: {e}. Falling back to HuggingFace embeddings.")
+            print(f"Gemini API failed: {e}. Quickly falling back to HuggingFace embeddings.")
 
     # Fallback to HuggingFace local embeddings
     try:
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         # Test embedding a small text to verify connection
         embeddings.embed_documents(["test"])
-        print("Using HuggingFace local embeddings.")
+        print("Using HuggingFace local embeddings (fallback).")
         return embeddings
     except Exception as e:
         raise RuntimeError(f"Failed to initialize both Gemini and HuggingFace embeddings: {e}")
 
-def embed_with_retry(embeddings, texts, batch_size=20, max_retries=5, backoff_factor=2):
+def embed_with_retry(embeddings, texts, batch_size=20, max_retries=2, backoff_factor=1):
     """
     Embed texts in batches with retry logic.
     """
