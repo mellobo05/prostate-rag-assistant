@@ -350,10 +350,10 @@ if selected_patient_id:
                     docs = all_docs[:5]  # Take first 5 documents as fallback
                 else:
                     st.error("❌ No documents available for search")
-                    return
+                    docs = []  # Set empty docs instead of return
 
-            # Extract medical data based on query
-            if any(keyword in user_query.lower() for keyword in ['psa', 'prostate specific antigen', 'psa history', 'psa results']):
+            # Extract medical data based on query (only if we have documents)
+            if docs and any(keyword in user_query.lower() for keyword in ['psa', 'prostate specific antigen', 'psa history', 'psa results']):
                 # For PSA extraction, process PDF directly instead of using vectorstore search
                 # This ensures we get ALL pages and don't miss any PSA results
                 st.info("Processing PDF directly for comprehensive PSA extraction...")
