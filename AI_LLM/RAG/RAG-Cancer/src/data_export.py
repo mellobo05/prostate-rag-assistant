@@ -214,3 +214,4 @@ def export_all_patients_summary(patient_manager, output_path: str):
     df.to_csv(output_path, index=False)
     
     return output_path
+

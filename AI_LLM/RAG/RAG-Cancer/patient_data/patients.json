@@ -3,71 +3,55 @@
     "name": "Chandraprakash Shetty",
     "age": 67,
     "created_date": "2025-09-18T21:37:51.222752",
-    "last_updated": "2025-09-18T22:26:04.867342",
+    "last_updated": "2025-09-19T20:21:34.482348",
     "documents": [
       {
-        "filename": "20250918_213929_Chandraprakash_Cancer_Reports.pdf",
+        "filename": "20250919_183936_Chandraprakash_Cancer_Reports.pdf",
         "original_filename": "Chandraprakash_Cancer_Reports.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_213929_Chandraprakash_Cancer_Reports.pdf",
+        "file_path": "patient_data\\P001\\documents\\20250919_183936_Chandraprakash_Cancer_Reports.pdf",
         "document_type": "medical_report",
-        "upload_date": "2025-09-18T21:39:29.436933",
+        "upload_date": "2025-09-19T18:39:36.161108",
         "file_size": 39589878
       },
       {
-        "filename": "20250918_213934_Chandraprakash_Cancer_Reports.pdf",
-        "original_filename": "Chandraprakash_Cancer_Reports.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_213934_Chandraprakash_Cancer_Reports.pdf",
-        "document_type": "medical_report",
-        "upload_date": "2025-09-18T21:39:34.841603",
-        "file_size": 39589878
-      },
-      {
-        "filename": "20250918_213946_Chandraprakash_Cancer_Reports.pdf",
-        "original_filename": "Chandraprakash_Cancer_Reports.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_213946_Chandraprakash_Cancer_Reports.pdf",
-        "document_type": "medical_report",
-        "upload_date": "2025-09-18T21:39:46.618787",
-        "file_size": 39589878
-      },
-      {
-        "filename": "20250918_213955_Chandraprakash_Cancer_Reports.pdf",
-        "original_filename": "Chandraprakash_Cancer_Reports.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_213955_Chandraprakash_Cancer_Reports.pdf",
-        "document_type": "medical_report",
-        "upload_date": "2025-09-18T21:39:55.522229",
-        "file_size": 39589878
-      },
-      {
-        "filename": "20250918_214018_Chandraprakash_Cancer_Reports.pdf",
-        "original_filename": "Chandraprakash_Cancer_Reports.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_214018_Chandraprakash_Cancer_Reports.pdf",
-        "document_type": "medical_report",
-        "upload_date": "2025-09-18T21:40:19.008114",
-        "file_size": 39589878
-      },
-      {
-        "filename": "20250918_222548_Psa 12-merged-compressed.pdf",
+        "filename": "20250919_201943_Psa 12-merged-compressed.pdf",
         "original_filename": "Psa 12-merged-compressed.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_222548_Psa 12-merged-compressed.pdf",
+        "file_path": "patient_data\\P001\\documents\\20250919_201943_Psa 12-merged-compressed.pdf",
         "document_type": "medical_report",
-        "upload_date": "2025-09-18T22:25:48.217969",
-        "file_size": 1511179
+        "upload_date": "2025-09-19T20:19:43.701903",
+        "file_size": 1589633
       },
       {
-        "filename": "20250918_222552_Psa 12-merged-compressed.pdf",
+        "filename": "20250919_201943_Psa 12-merged-compressed.pdf",
         "original_filename": "Psa 12-merged-compressed.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_222552_Psa 12-merged-compressed.pdf",
+        "file_path": "patient_data\\P001\\documents\\20250919_201943_Psa 12-merged-compressed.pdf",
         "document_type": "medical_report",
-        "upload_date": "2025-09-18T22:25:52.492051",
-        "file_size": 1511179
+        "upload_date": "2025-09-19T20:19:43.962710",
+        "file_size": 1589633
       },
       {
-        "filename": "20250918_222604_Psa 12-merged-compressed.pdf",
+        "filename": "20250919_201948_Psa 12-merged-compressed.pdf",
         "original_filename": "Psa 12-merged-compressed.pdf",
-        "file_path": "patient_data\\P001\\documents\\20250918_222604_Psa 12-merged-compressed.pdf",
+        "file_path": "patient_data\\P001\\documents\\20250919_201948_Psa 12-merged-compressed.pdf",
         "document_type": "medical_report",
-        "upload_date": "2025-09-18T22:26:04.867342",
-        "file_size": 1511179
+        "upload_date": "2025-09-19T20:19:48.445748",
+        "file_size": 1589633
+      },
+      {
+        "filename": "20250919_202134_Psa 12-merged-compressed.pdf",
+        "original_filename": "Psa 12-merged-compressed.pdf",
+        "file_path": "patient_data\\P001\\documents\\20250919_202134_Psa 12-merged-compressed.pdf",
+        "document_type": "medical_report",
+        "upload_date": "2025-09-19T20:21:34.189702",
+        "file_size": 1589633
+      },
+      {
+        "filename": "20250919_202134_Psa 12-merged-compressed.pdf",
+        "original_filename": "Psa 12-merged-compressed.pdf",
+        "file_path": "patient_data\\P001\\documents\\20250919_202134_Psa 12-merged-compressed.pdf",
+        "document_type": "medical_report",
+        "upload_date": "2025-09-19T20:21:34.481345",
+        "file_size": 1589633
       }
     ],
     "additional_info": {}

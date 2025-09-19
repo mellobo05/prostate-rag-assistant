@@ -196,3 +196,119 @@ class PatientManager:
             "created_date": patient["created_date"],
             "last_updated": patient["last_updated"]
         }
+    
+    def find_duplicate_documents(self, patient_id: str) -> List[Dict[str, Any]]:
+        """
+        Find duplicate documents for a patient based on original filename and file size.
+        
+        Returns:
+            List of duplicate groups, where each group contains documents that are duplicates
+        """
+        if patient_id not in self.patients:
+            return []
+        
+        documents = self.patients[patient_id].get("documents", [])
+        duplicate_groups = []
+        seen_combinations = {}
+        
+        for doc in documents:
+            # Create a key based on original filename and file size
+            key = (doc["original_filename"], doc["file_size"])
+            
+            if key in seen_combinations:
+                # This is a duplicate
+                if key not in [group["key"] for group in duplicate_groups]:
+                    # First time seeing this duplicate, create a new group
+                    duplicate_groups.append({
+                        "key": key,
+                        "original_filename": doc["original_filename"],
+                        "file_size": doc["file_size"],
+                        "documents": [seen_combinations[key], doc]
+                    })
+                else:
+                    # Add to existing group
+                    for group in duplicate_groups:
+                        if group["key"] == key:
+                            group["documents"].append(doc)
+                            break
+            else:
+                seen_combinations[key] = doc
+        
+        return duplicate_groups
+    
+    def remove_duplicate_documents(self, patient_id: str, keep_latest: bool = True) -> Dict[str, Any]:
+        """
+        Remove duplicate documents for a patient, keeping only one copy of each unique document.
+        
+        Args:
+            patient_id: Patient ID
+            keep_latest: If True, keep the latest uploaded version. If False, keep the first uploaded version.
+        
+        Returns:
+            Dictionary with removal statistics
+        """
+        if patient_id not in self.patients:
+            return {"error": "Patient not found"}
+        
+        duplicate_groups = self.find_duplicate_documents(patient_id)
+        removed_count = 0
+        kept_count = 0
+        
+        for group in duplicate_groups:
+            documents = group["documents"]
+            
+            if len(documents) > 1:
+                # Sort by upload date
+                documents.sort(key=lambda x: x["upload_date"], reverse=keep_latest)
+                
+                # Keep the first one (latest if keep_latest=True, oldest if False)
+                keep_doc = documents[0]
+                remove_docs = documents[1:]
+                
+                # Remove files from filesystem
+                for doc in remove_docs:
+                    try:
+                        if os.path.exists(doc["file_path"]):
+                            os.remove(doc["file_path"])
+                        removed_count += 1
+                    except Exception as e:
+                        print(f"Error removing file {doc['file_path']}: {e}")
+                
+                # Remove from patient documents list
+                self.patients[patient_id]["documents"] = [
+                    d for d in self.patients[patient_id]["documents"] 
+                    if d not in remove_docs
+                ]
+                
+                kept_count += 1
+        
+        # Update last_updated timestamp
+        self.patients[patient_id]["last_updated"] = datetime.now().isoformat()
+        self.save_patients()
+        
+        return {
+            "duplicate_groups_found": len(duplicate_groups),
+            "documents_removed": removed_count,
+            "unique_documents_kept": kept_count,
+            "total_documents_after": len(self.patients[patient_id]["documents"])
+        }
+    
+    def get_unique_documents(self, patient_id: str) -> List[Dict]:
+        """
+        Get unique documents for a patient (one per original filename + file size combination).
+        """
+        if patient_id not in self.patients:
+            return []
+        
+        documents = self.patients[patient_id].get("documents", [])
+        unique_docs = []
+        seen_combinations = set()
+        
+        for doc in documents:
+            key = (doc["original_filename"], doc["file_size"])
+            if key not in seen_combinations:
+                unique_docs.append(doc)
+                seen_combinations.add(key)
+        
+        return unique_docs
+

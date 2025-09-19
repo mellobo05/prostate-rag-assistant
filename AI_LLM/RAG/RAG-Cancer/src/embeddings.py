@@ -30,13 +30,36 @@ def get_embeddings():
 
     # Fallback to HuggingFace local embeddings
     try:
-        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+        # Configure HuggingFace to work offline and bypass proxy
+        os.environ["HF_HUB_OFFLINE"] = "1"  # Force offline mode
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"  # Force transformers offline
+        os.environ["HF_DATASETS_OFFLINE"] = "1"  # Force datasets offline
+        
+        # Try to use a local model or download with proxy bypass
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            model_kwargs={
+                'device': 'cpu',  # Use CPU to avoid GPU issues
+                'trust_remote_code': True
+            },
+            encode_kwargs={
+                'normalize_embeddings': True
+            }
+        )
         # Test embedding a small text to verify connection
         embeddings.embed_documents(["test"])
         print("Using HuggingFace local embeddings (fallback).")
         return embeddings
     except Exception as e:
-        raise RuntimeError(f"Failed to initialize both Gemini and HuggingFace embeddings: {e}")
+        print(f"HuggingFace failed: {e}")
+        # Try with a simpler approach - use a basic embedding
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            print("Using direct SentenceTransformer (offline).")
+            return model
+        except Exception as e2:
+            raise RuntimeError(f"Failed to initialize both Gemini and HuggingFace embeddings: {e2}")
 
 def embed_with_retry(embeddings, texts, batch_size=20, max_retries=2, backoff_factor=1):
     """

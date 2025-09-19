@@ -61,23 +61,57 @@ def extract_psa_values(search_results: List[Any]) -> List[Dict[str, Any]]:
     Extract PSA values with dates from search results and sort chronologically.
     """
     psa_data = []
+    
+    # Comprehensive PSA patterns - order matters (most specific first)
     psa_patterns = [
+        # Most specific patterns for medical reports - exact match for "PROSTATE SPECIFIC ANTIGEN - PSA (H)6.04 ng/ml"
+        r"PROSTATE\s*SPECIFIC\s*ANTIGEN\s*-\s*PSA\s*\([HL]\)\s*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        r"PROSTATE\s*SPECIFIC\s*ANTIGEN[^0-9]*\([^)]*\)\s*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        r"PROSTATE\s*SPECIFIC\s*ANTIGEN[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Pattern for "PSA (H)6.04 ng/ml" format (no space between (H) and number)
+        r"PSA\s*\([HL]\)\s*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Pattern for "-PSA (Serum) 0.02 ng/ml" format (with space)
+        r"-PSA\s*\([^)]*\)\s*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Pattern for "-TOTAL (PSA) 0.02 ng/ml" format
+        r"-TOTAL\s*\(PSA\)\s*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Pattern for "PSA (Serum) Result 0.01 ng/ml" format
+        r"PSA\s*\([^)]*\)\s*Result\s*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Pattern for "PSA, TOTAL 0.00 - 4.00 ng/mL11.440" format
+        r"PSA[,\s]*TOTAL[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Pattern for "ng/mL11.440" format (no space between ng/mL and number)
+        r"ng/mL\s*([0-9]+(?:\.[0-9]+)?)\s*(?:Note|$)",
+        # Pattern for values in result lines
+        r"Result\s*[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # More restrictive PSA patterns
+        r"PSA[^0-9]*([0-9]+(?:\.[0-9]+)?)\s*ng/mL",
+        # Fallback patterns
         r"(?:PSA|Prostate\s*Specific\s*Antigen)[:\s=]*([0-9]+(?:\.[0-9]+)?)\s*(?:ng/mL|ng/ml)?",
         r"PSA\s*([0-9]+(?:\.[0-9]+)?)\s*(?:ng/mL|ng/ml)?",
-        r"Prostate\s*Specific\s*Antigen\s*([0-9]+(?:\.[0-9]+)?)\s*(?:ng/mL|ng/ml)?",
-        r"PSA\s*level[:\s]*([0-9]+(?:\.[0-9]+)?)",
-        r"PSA\s*value[:\s]*([0-9]+(?:\.[0-9]+)?)"
+        r"Prostate\s*Specific\s*Antigen\s*([0-9]+(?:\.[0-9]+)?)\s*(?:ng/mL|ng/ml)?"
     ]
     
-    # Enhanced date patterns to catch more date formats
+    # Enhanced date patterns to catch more date formats including Nov/Oct
     date_patterns = [
-        r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",  # MM/DD/YYYY or DD/MM/YYYY
-        r"(\d{4}[/-]\d{1,2}[/-]\d{1,2})",    # YYYY/MM/DD
-        r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})",  # DD Month YYYY
+        # Month abbreviations (Nov, Oct, etc.) - most specific first
         r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})",  # Month DD, YYYY
-        r"(\d{4})",  # Just year
+        r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})",  # DD Month YYYY
+        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})",  # Month YYYY
+        # Medical report specific patterns - extract just the date part
+        r"Collection\s+Date[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})",  # Collection Date: MM/DD/YYYY
+        r"Report\s+Date[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})",  # Report Date: MM/DD/YYYY
+        r"Received\s+On\s+(\d{1,2}[/-]\d{1,2}[/-]\d{4})",  # Received On MM/DD/YYYY
+        r"Reported\s+On\s+(\d{1,2}[/-]\d{1,2}[/-]\d{4})",  # Reported On MM/DD/YYYY
+        # Standard date formats - more restrictive to avoid invalid dates
+        r"(\d{1,2}[/-]\d{1,2}[/-]\d{4})",  # MM/DD/YYYY or DD/MM/YYYY (4-digit year)
+        r"(\d{4}[/-]\d{1,2}[/-]\d{1,2})",    # YYYY/MM/DD
         r"(\d{1,2}/\d{4})",  # MM/YYYY
-        r"(\d{4}-\d{2})"  # YYYY-MM
+        r"(\d{4}-\d{2})",  # YYYY-MM
+        # Additional patterns for medical reports
+        r"(\d{1,2}\s+of\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})",  # DD of Month YYYY
+        r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2}\s+\d{4})",  # Month DD YYYY
+        # More restrictive patterns to avoid invalid dates
+        r"(\d{1,2}[/-]\d{1,2}[/-]\d{2})",  # MM/DD/YY (2-digit year)
+        r"(\d{4})",  # Just year (4-digit only)
     ]
 
     for result in search_results:
@@ -85,17 +119,34 @@ def extract_psa_values(search_results: List[Any]) -> List[Dict[str, Any]]:
         
         for pattern in psa_patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
-        for match in matches:
+            for match in matches:
                 try:
                     value = float(match.group(1))
                     
+                    # Filter out obviously wrong PSA values
+                    if value > 50:  # PSA values above 50 are extremely rare and likely wrong
+                        continue
+                    
                     # Look for date near the PSA value (expanded search area)
                     date = "Unknown date"
+                    # Search in a larger area around the PSA value
+                    search_start = max(0, match.start()-500)
+                    search_end = min(len(text), match.end()+500)
+                    search_text = text[search_start:search_end]
+                    
                     for date_pattern in date_patterns:
-                        date_match = re.search(date_pattern, text[max(0, match.start()-100):match.end()+100], re.IGNORECASE)
+                        date_match = re.search(date_pattern, search_text, re.IGNORECASE)
                         if date_match:
                             date = date_match.group(1)
                             break
+                    
+                    # If no date found in expanded area, try the entire document
+                    if date == "Unknown date":
+                        for date_pattern in date_patterns:
+                            date_match = re.search(date_pattern, text, re.IGNORECASE)
+                            if date_match:
+                                date = date_match.group(1)
+                                break
                     
                     # Extract more context around the PSA value
                     context_start = max(0, match.start()-150)
@@ -112,9 +163,24 @@ def extract_psa_values(search_results: List[Any]) -> List[Dict[str, Any]]:
                 except ValueError:
                     continue
     
-    # Sort by date (chronological order)
-    psa_data.sort(key=lambda x: parse_date_for_sorting(x["date"]))
-    return psa_data
+    # Remove duplicates based on value, date, and context similarity
+    unique_psa_data = []
+    seen_combinations = set()
+    
+    for psa in psa_data:
+        # Create a more specific key based on value, date, and context
+        context_key = psa["context"][:100].strip()
+        # Also include source to avoid cross-document duplicates
+        source_key = psa.get("source", "")
+        key = (psa["value"], psa["date"], context_key, source_key)
+        
+        if key not in seen_combinations:
+            unique_psa_data.append(psa)
+            seen_combinations.add(key)
+    
+    # Sort by date (chronological order - oldest first)
+    unique_psa_data.sort(key=lambda x: parse_date_for_sorting(x["date"]))
+    return unique_psa_data
 
 def parse_date_for_sorting(date_str: str) -> tuple:
     """
@@ -130,10 +196,13 @@ def parse_date_for_sorting(date_str: str) -> tuple:
     
     # Common date patterns
     patterns = [
+        # Month abbreviations first (Nov, Oct, etc.)
+        r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4})",  # Month DD, YYYY
+        r"(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})",  # DD Month YYYY
+        r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})",  # Month YYYY
+        # Standard date formats - handle both MM/DD/YYYY and DD/MM/YYYY
         r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})",  # MM/DD/YYYY or DD/MM/YYYY
         r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})",  # YYYY/MM/DD
-        r"(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{4})",  # DD Month YYYY
-        r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s+(\d{4})",  # Month DD, YYYY
         r"(\d{4})",  # Just year
         r"(\d{1,2})/(\d{4})",  # MM/YYYY
         r"(\d{4})-(\d{2})"  # YYYY-MM
@@ -150,30 +219,40 @@ def parse_date_for_sorting(date_str: str) -> tuple:
             groups = match.groups()
             try:
                 if len(groups) == 3:
-                    if pattern == patterns[0]:  # MM/DD/YYYY or DD/MM/YYYY
-                        # Assume MM/DD/YYYY format
-                        month, day, year = map(int, groups)
-                        return (year, month, day)
-                    elif pattern == patterns[1]:  # YYYY/MM/DD
-                        year, month, day = map(int, groups)
-                        return (year, month, day)
-                    elif pattern == patterns[2]:  # DD Month YYYY
-                        day, month_name, year = groups
-                        month = month_names.get(month_name.lower(), 1)
-                        return (int(year), month, int(day))
-                    elif pattern == patterns[3]:  # Month DD, YYYY
+                    if pattern == patterns[0]:  # Month DD, YYYY
                         month_name, day, year = groups
                         month = month_names.get(month_name.lower(), 1)
                         return (int(year), month, int(day))
+                    elif pattern == patterns[1]:  # DD Month YYYY
+                        day, month_name, year = groups
+                        month = month_names.get(month_name.lower(), 1)
+                        return (int(year), month, int(day))
+                    elif pattern == patterns[3]:  # MM/DD/YYYY or DD/MM/YYYY
+                        # Try to determine if it's DD/MM/YYYY or MM/DD/YYYY
+                        first, second, year = map(int, groups)
+                        if first > 12:  # First number > 12, must be DD/MM/YYYY
+                            day, month = first, second
+                        elif second > 12:  # Second number > 12, must be MM/DD/YYYY
+                            month, day = first, second
+                        else:  # Ambiguous, assume DD/MM/YYYY (more common in medical reports)
+                            day, month = first, second
+                        return (year, month, day)
+                    elif pattern == patterns[4]:  # YYYY/MM/DD
+                        year, month, day = map(int, groups)
+                        return (year, month, day)
                 elif len(groups) == 2:
-                    if pattern == patterns[5]:  # MM/YYYY
+                    if pattern == patterns[2]:  # Month YYYY
+                        month_name, year = groups
+                        month = month_names.get(month_name.lower(), 1)
+                        return (int(year), month, 1)
+                    elif pattern == patterns[6]:  # MM/YYYY
                         month, year = map(int, groups)
                         return (year, month, 1)
-                    elif pattern == patterns[6]:  # YYYY-MM
+                    elif pattern == patterns[7]:  # YYYY-MM
                         year, month = map(int, groups)
                         return (year, month, 1)
                 elif len(groups) == 1:
-                    if pattern == patterns[4]:  # Just year
+                    if pattern == patterns[5]:  # Just year
                         year = int(groups[0])
                         return (year, 1, 1)
             except (ValueError, KeyError):

@@ -112,19 +112,73 @@ if selected_patient_id:
     documents = patient_manager.get_patient_documents(selected_patient_id)
 
     if documents:
+        # Check for duplicates
+        duplicate_groups = patient_manager.find_duplicate_documents(selected_patient_id)
+        
+        if duplicate_groups:
+            st.warning(f"⚠️ Found {len(duplicate_groups)} duplicate document groups!")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🗑️ Remove Duplicates (Keep Latest)", key="remove_duplicates"):
+                    result = patient_manager.remove_duplicate_documents(selected_patient_id, keep_latest=True)
+                    st.success(f"✅ Removed {result['documents_removed']} duplicate documents. Kept {result['unique_documents_kept']} unique documents.")
+                    st.rerun()
+            
+            with col2:
+                if st.button("📊 Show Duplicate Details", key="show_duplicates"):
+                    for i, group in enumerate(duplicate_groups, 1):
+                        with st.expander(f"Duplicate Group {i}: {group['original_filename']} ({group['file_size']} bytes)"):
+                            for j, doc in enumerate(group['documents']):
+                                st.write(f"**Copy {j+1}:** {doc['filename']} - Uploaded: {doc['upload_date'][:19]}")
+        
         # Create a DataFrame for better display
         doc_df = pd.DataFrame(documents)
         doc_df['upload_date'] = pd.to_datetime(doc_df['upload_date']).dt.strftime('%Y-%m-%d %H:%M')
-        doc_df = doc_df[['original_filename', 'document_type', 'upload_date', 'file_size']]
-        doc_df.columns = ['Filename', 'Type', 'Upload Date', 'Size (bytes)']
-
-        st.dataframe(doc_df, use_container_width=True)
+        doc_df = doc_df[['original_filename', 'document_type', 'upload_date', 'file_size', 'filename']]
+        doc_df.columns = ['Filename', 'Type', 'Upload Date', 'Size (bytes)', 'Internal Filename']
+        
+        # Add delete buttons for each document
+        st.subheader("📄 Document Management")
+        
+        for i, doc in enumerate(documents):
+            col1, col2, col3, col4, col5 = st.columns([3, 1, 1, 1, 1])
+            with col1:
+                st.write(f"**{doc['original_filename']}**")
+                st.write(f"Uploaded: {doc['upload_date'][:19]} | Size: {doc['file_size']:,} bytes")
+            with col2:
+                if st.button("🗑️ Delete", key=f"delete_{i}"):
+                    # Delete the document
+                    try:
+                        if os.path.exists(doc['file_path']):
+                            os.remove(doc['file_path'])
+                        # Remove from patient data
+                        patient_manager.patients[selected_patient_id]['documents'].remove(doc)
+                        patient_manager.save_patients()
+                        st.success(f"✅ Deleted {doc['original_filename']}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error deleting {doc['original_filename']}: {e}")
+            with col3:
+                if st.button("📊 Process", key=f"process_{i}"):
+                    st.info(f"Processing {doc['original_filename']}...")
+            with col4:
+                if st.button("👁️ View", key=f"view_{i}"):
+                    st.info(f"Viewing {doc['original_filename']}...")
+            with col5:
+                if st.button("📋 Info", key=f"info_{i}"):
+                    st.json(doc)
+            st.divider()
 
         # Process documents for RAG
         if st.button("🔄 Process Documents for RAG", key="process_docs"):
             with st.spinner("Processing documents..."):
+                # Use unique documents only to avoid processing duplicates
+                unique_documents = patient_manager.get_unique_documents(selected_patient_id)
+                st.info(f"Processing {len(unique_documents)} unique documents (out of {len(documents)} total)")
+                
                 all_docs = []
-                for doc in documents:
+                for doc in unique_documents:
                     if doc['file_path'] and os.path.exists(doc['file_path']):
                         docs = load_pdf_from_path(doc['file_path'])
                         for d in docs:
@@ -132,13 +186,14 @@ if selected_patient_id:
                             # Add patient metadata
                             d.metadata['patient_id'] = selected_patient_id
                             d.metadata['patient_name'] = patient_data['name']
+                            d.metadata['source'] = doc['original_filename']  # Use original filename
                         all_docs.extend(docs)
 
                 if all_docs:
                     chunks = split_documents(all_docs)
                     vs = build_vectorstore(chunks, persist=True)
                     st.session_state[f'vectorstore_{selected_patient_id}'] = vs
-                    st.success(f"✅ Processed {len(all_docs)} documents for patient {patient_data['name']}")
+                    st.success(f"✅ Processed {len(all_docs)} document pages from {len(unique_documents)} unique documents for patient {patient_data['name']}")
                 else:
                     st.error("❌ No valid documents found to process")
     else:
@@ -166,12 +221,23 @@ if selected_patient_id:
             st.session_state['export_data'] = True
 
     # Custom query
-    user_query = st.text_input(
-        "Ask a question about the patient's medical data",
-        placeholder="e.g., What are the PSA results?"
-    )
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        user_query = st.text_input(
+            "Ask a question about the patient's medical data",
+            placeholder="e.g., What are the PSA results?",
+            key="search_query"
+        )
+    with col2:
+        if st.button("🗑️ Clear", key="clear_search"):
+            st.session_state.search_query = ""
+            st.rerun()
 
     if st.button("🔍 Search") and user_query:
+        # Clear any previous search results
+        if f'search_results_{selected_patient_id}' in st.session_state:
+            del st.session_state[f'search_results_{selected_patient_id}']
+        
         # Get vectorstore for this patient
         vs = st.session_state.get(f'vectorstore_{selected_patient_id}')
 
@@ -180,7 +246,28 @@ if selected_patient_id:
 
             # Extract medical data based on query
             if any(keyword in user_query.lower() for keyword in ['psa', 'prostate specific antigen', 'psa history', 'psa results']):
-                medical_data = extract_medical_data(docs, 'psa')
+                # For PSA extraction, process PDF directly instead of using vectorstore search
+                # This ensures we get ALL pages and don't miss any PSA results
+                st.info("Processing PDF directly for comprehensive PSA extraction...")
+                
+                # Get unique documents for this patient
+                unique_documents = patient_manager.get_unique_documents(selected_patient_id)
+                all_docs = []
+                
+                for doc in unique_documents:
+                    if doc['file_path'] and os.path.exists(doc['file_path']):
+                        docs = load_pdf_from_path(doc['file_path'])
+                        for d in docs:
+                            d.page_content = clean_text(d.page_content)
+                            # Add patient metadata
+                            d.metadata['patient_id'] = selected_patient_id
+                            d.metadata['patient_name'] = patient_data['name']
+                            d.metadata['source'] = doc['original_filename']
+                            d.metadata['file_path'] = doc['file_path']
+                        all_docs.extend(docs)
+                
+                st.info(f"Processing {len(all_docs)} document pages directly...")
+                medical_data = extract_medical_data(all_docs, 'psa')
                 if medical_data.get('psa_results'):
                     st.subheader("📊 PSA History (Chronological Order)")
 
