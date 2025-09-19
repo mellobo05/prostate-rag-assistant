@@ -169,14 +169,26 @@ def extract_psa_values(search_results: List[Any]) -> List[Dict[str, Any]]:
     
     for psa in psa_data:
         # Create a more specific key based on value, date, and context
-        context_key = psa["context"][:100].strip()
+        # Use a shorter, more unique context key (50 chars) to catch more duplicates
+        context_key = psa["context"][:50].strip()
         # Also include source to avoid cross-document duplicates
         source_key = psa.get("source", "")
-        key = (psa["value"], psa["date"], context_key, source_key)
         
-        if key not in seen_combinations:
+        # Create multiple keys to catch different types of duplicates
+        key1 = (psa["value"], psa["date"], context_key, source_key)
+        key2 = (psa["value"], psa["date"], source_key)  # Just value, date, source
+        key3 = (psa["value"], psa["date"])  # Just value and date for same source
+        
+        # Check if this is a duplicate based on any of the keys
+        is_duplicate = (key1 in seen_combinations or 
+                       key2 in seen_combinations or 
+                       key3 in seen_combinations)
+        
+        if not is_duplicate:
             unique_psa_data.append(psa)
-            seen_combinations.add(key)
+            seen_combinations.add(key1)
+            seen_combinations.add(key2)
+            seen_combinations.add(key3)
     
     # Sort by date (chronological order - oldest first)
     unique_psa_data.sort(key=lambda x: parse_date_for_sorting(x["date"]))
