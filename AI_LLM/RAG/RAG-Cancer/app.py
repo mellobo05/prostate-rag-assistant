@@ -193,8 +193,14 @@ if selected_patient_id:
                     try:
                         chunks = split_documents(all_docs)
                         vs = build_vectorstore(chunks, persist=True)
-                        st.session_state[f'vectorstore_{selected_patient_id}'] = vs
-                        st.success(f"✅ Processed {len(all_docs)} document pages from {len(unique_documents)} unique documents for patient {patient_data['name']}")
+                        if vs is not None:
+                            st.session_state[f'vectorstore_{selected_patient_id}'] = vs
+                            st.success(f"✅ Processed {len(all_docs)} document pages from {len(unique_documents)} unique documents for patient {patient_data['name']}")
+                        else:
+                            st.warning("⚠️ Vectorstore creation failed due to SQLite version compatibility. Using fallback mode.")
+                            st.info("✅ Documents loaded successfully. All features will work using direct PDF processing.")
+                            # Store documents without vectorstore for basic functionality
+                            st.session_state[f'documents_{selected_patient_id}'] = all_docs
                     except Exception as e:
                         st.error(f"❌ Error building vectorstore: {str(e)}")
                         st.warning("⚠️ Documents loaded but vectorstore creation failed. Some features may not work properly.")

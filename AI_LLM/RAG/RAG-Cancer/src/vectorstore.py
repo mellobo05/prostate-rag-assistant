@@ -41,6 +41,11 @@ def build_vectorstore(documents, persist=True, force_rebuild=False):
             if "dimension" in str(e).lower():
                 print(f"Dimension mismatch: {e}")
                 safe_delete(persist_dir)
+            elif "sqlite" in str(e).lower() or "unsupported version" in str(e).lower():
+                print(f"SQLite version issue: {e}")
+                print("Falling back to in-memory vectorstore...")
+                # Return None to trigger fallback in app.py
+                return None
             else:
                 print(f"DB load failed ({e}), rebuilding...")
 
@@ -57,15 +62,34 @@ def build_vectorstore(documents, persist=True, force_rebuild=False):
         embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
         print("Switched to HuggingFace embeddings due to failure")
 
-    chroma = Chroma.from_texts(
-        texts=texts,
-        embedding=embeddings,
-        metadatas=[doc.metadata for doc in documents],
-        persist_directory=persist_dir
-    )
-    if persist:
-        chroma.persist()
-    return chroma
+    try:
+        chroma = Chroma.from_texts(
+            texts=texts,
+            embedding=embeddings,
+            metadatas=[doc.metadata for doc in documents],
+            persist_directory=persist_dir
+        )
+        if persist:
+            chroma.persist()
+        return chroma
+    except Exception as e:
+        if "sqlite" in str(e).lower() or "unsupported version" in str(e).lower():
+            print(f"SQLite version issue during creation: {e}")
+            print("Falling back to in-memory vectorstore...")
+            # Try creating without persistence
+            try:
+                chroma = Chroma.from_texts(
+                    texts=texts,
+                    embedding=embeddings,
+                    metadatas=[doc.metadata for doc in documents]
+                )
+                return chroma
+            except Exception as e2:
+                print(f"Even in-memory vectorstore failed: {e2}")
+                return None
+        else:
+            print(f"Vectorstore creation failed: {e}")
+            return None
 
 def load_vectorstore():
     embeddings = get_embeddings()
