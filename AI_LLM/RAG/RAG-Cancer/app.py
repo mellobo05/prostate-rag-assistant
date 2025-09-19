@@ -190,10 +190,16 @@ if selected_patient_id:
                         all_docs.extend(docs)
 
                 if all_docs:
-                    chunks = split_documents(all_docs)
-                    vs = build_vectorstore(chunks, persist=True)
-                    st.session_state[f'vectorstore_{selected_patient_id}'] = vs
-                    st.success(f"✅ Processed {len(all_docs)} document pages from {len(unique_documents)} unique documents for patient {patient_data['name']}")
+                    try:
+                        chunks = split_documents(all_docs)
+                        vs = build_vectorstore(chunks, persist=True)
+                        st.session_state[f'vectorstore_{selected_patient_id}'] = vs
+                        st.success(f"✅ Processed {len(all_docs)} document pages from {len(unique_documents)} unique documents for patient {patient_data['name']}")
+                    except Exception as e:
+                        st.error(f"❌ Error building vectorstore: {str(e)}")
+                        st.warning("⚠️ Documents loaded but vectorstore creation failed. Some features may not work properly.")
+                        # Store documents without vectorstore for basic functionality
+                        st.session_state[f'documents_{selected_patient_id}'] = all_docs
                 else:
                     st.error("❌ No valid documents found to process")
     else:
@@ -220,6 +226,97 @@ if selected_patient_id:
         if st.button("📤 Export All Data", key="export_data"):
             st.session_state['export_data'] = True
 
+    # Handle extraction button clicks
+    if st.session_state.get('extract_type'):
+        extract_type = st.session_state['extract_type']
+        st.write(f"**Extracting {extract_type.upper()} data...**")
+        
+        # Get documents for extraction
+        all_docs = st.session_state.get(f'documents_{selected_patient_id}', [])
+        if not all_docs:
+            # Fallback: load documents directly
+            unique_documents = patient_manager.get_unique_documents(selected_patient_id)
+            all_docs = []
+            
+            for doc in unique_documents:
+                if doc['file_path'] and os.path.exists(doc['file_path']):
+                    docs = load_pdf_from_path(doc['file_path'])
+                    for d in docs:
+                        d.page_content = clean_text(d.page_content)
+                        d.metadata['patient_id'] = selected_patient_id
+                        d.metadata['patient_name'] = patient_data['name']
+                        d.metadata['source'] = doc['original_filename']
+                        d.metadata['file_path'] = doc['file_path']
+                    all_docs.extend(docs)
+        
+        if all_docs:
+            medical_data = extract_medical_data(all_docs, extract_type)
+            
+            if extract_type == 'psa' and medical_data.get('psa_results'):
+                st.write(f"**Found {len(medical_data['psa_results'])} PSA results:**")
+                psa_df = pd.DataFrame(medical_data['psa_results'])
+                psa_df = psa_df[['date', 'value', 'unit', 'context', 'source']]
+                psa_df.columns = ['Date', 'PSA Value', 'Unit', 'Context', 'Source']
+                st.dataframe(psa_df, use_container_width=True)
+            elif extract_type == 'gleason' and medical_data.get('gleason_scores'):
+                st.write(f"**Found {len(medical_data['gleason_scores'])} Gleason scores:**")
+                for gleason in medical_data['gleason_scores']:
+                    st.write(f"**Score:** {gleason['score']}")
+                    st.write(f"**Context:** {gleason['context']}")
+                    st.write("---")
+            elif extract_type == 'stage' and medical_data.get('cancer_stage'):
+                st.write(f"**Found {len(medical_data['cancer_stage'])} cancer stages:**")
+                for stage in medical_data['cancer_stage']:
+                    st.write(f"**Stage:** {stage['stage']}")
+                    st.write(f"**Context:** {stage['context']}")
+                    st.write("---")
+            elif extract_type == 'treatment' and medical_data.get('treatments'):
+                st.write(f"**Found {len(medical_data['treatments'])} treatments:**")
+                for treatment in medical_data['treatments']:
+                    st.write(f"**Treatment:** {treatment['treatment']}")
+                    st.write(f"**Context:** {treatment['context']}")
+                    st.write("---")
+            else:
+                st.warning(f"No {extract_type} data found in the documents.")
+        else:
+            st.error("No documents available for extraction.")
+        
+        # Clear the extraction type
+        st.session_state['extract_type'] = None
+
+    # Handle export data button click
+    if st.session_state.get('export_data'):
+        st.write("**Exporting all medical data...**")
+        
+        # Get documents for export
+        all_docs = st.session_state.get(f'documents_{selected_patient_id}', [])
+        if not all_docs:
+            # Fallback: load documents directly
+            unique_documents = patient_manager.get_unique_documents(selected_patient_id)
+            all_docs = []
+            
+            for doc in unique_documents:
+                if doc['file_path'] and os.path.exists(doc['file_path']):
+                    docs = load_pdf_from_path(doc['file_path'])
+                    for d in docs:
+                        d.page_content = clean_text(d.page_content)
+                        d.metadata['patient_id'] = selected_patient_id
+                        d.metadata['patient_name'] = patient_data['name']
+                        d.metadata['source'] = doc['original_filename']
+                        d.metadata['file_path'] = doc['file_path']
+                    all_docs.extend(docs)
+        
+        if all_docs:
+            # Export all medical data
+            from src.data_export import export_patient_data
+            export_patient_data(selected_patient_id, patient_data['name'], all_docs)
+            st.success("✅ Data exported successfully!")
+        else:
+            st.error("No documents available for export.")
+        
+        # Clear the export flag
+        st.session_state['export_data'] = None
+
     # Custom query
     col1, col2 = st.columns([4, 1])
     with col1:
@@ -242,7 +339,18 @@ if selected_patient_id:
         vs = st.session_state.get(f'vectorstore_{selected_patient_id}')
 
         if vs:
-            docs = vs.similarity_search(user_query, k=5)
+            try:
+                docs = vs.similarity_search(user_query, k=5)
+            except Exception as e:
+                st.error(f"❌ Error searching vectorstore: {str(e)}")
+                st.warning("⚠️ Falling back to direct document search...")
+                # Fallback to direct document search
+                all_docs = st.session_state.get(f'documents_{selected_patient_id}', [])
+                if all_docs:
+                    docs = all_docs[:5]  # Take first 5 documents as fallback
+                else:
+                    st.error("❌ No documents available for search")
+                    return
 
             # Extract medical data based on query
             if any(keyword in user_query.lower() for keyword in ['psa', 'prostate specific antigen', 'psa history', 'psa results']):
@@ -351,4 +459,71 @@ if selected_patient_id:
                         st.write(f"   {doc.page_content[:200]}...")
                         st.write("")
         else:
-            st.warning("Please process documents first by clicking 'Process Documents for RAG' button.")
+            # Fallback when vectorstore is not available
+            st.warning("⚠️ Vectorstore not available. Using direct document search...")
+            
+            # Get documents from session state
+            all_docs = st.session_state.get(f'documents_{selected_patient_id}', [])
+            if all_docs:
+                docs = all_docs[:5]  # Take first 5 documents as fallback
+                
+                # Extract medical data based on query
+                if any(keyword in user_query.lower() for keyword in ['psa', 'prostate specific antigen', 'psa history', 'psa results']):
+                    # For PSA extraction, process PDF directly
+                    st.info("Processing PDF directly for comprehensive PSA extraction...")
+                    
+                    # Get unique documents for this patient
+                    unique_documents = patient_manager.get_unique_documents(selected_patient_id)
+                    all_docs = []
+                    
+                    for doc in unique_documents:
+                        if doc['file_path'] and os.path.exists(doc['file_path']):
+                            docs = load_pdf_from_path(doc['file_path'])
+                            for d in docs:
+                                d.page_content = clean_text(d.page_content)
+                                # Add patient metadata
+                                d.metadata['patient_id'] = selected_patient_id
+                                d.metadata['patient_name'] = patient_data['name']
+                                d.metadata['source'] = doc['original_filename']
+                                d.metadata['file_path'] = doc['file_path']
+                            all_docs.extend(docs)
+                    
+                    # Extract PSA data
+                    medical_data = extract_medical_data(all_docs, 'psa')
+                    
+                    if medical_data.get('psa_results'):
+                        st.write(f"**Found {len(medical_data['psa_results'])} PSA results:**")
+                        
+                        # Create a table for better display
+                        psa_df = pd.DataFrame(medical_data['psa_results'])
+                        psa_df = psa_df[['date', 'value', 'unit', 'context', 'source']]
+                        psa_df.columns = ['Date', 'PSA Value', 'Unit', 'Context', 'Source']
+                        
+                        # Display the table
+                        st.dataframe(psa_df, use_container_width=True)
+                        
+                        # Summary statistics
+                        if len(medical_data['psa_results']) > 1:
+                            values = [psa['value'] for psa in medical_data['psa_results']]
+                            col1, col2, col3, col4 = st.columns(4)
+                            with col1:
+                                st.metric("Latest PSA", f"{values[-1]:.2f} ng/mL")
+                            with col2:
+                                st.metric("Highest PSA", f"{max(values):.2f} ng/mL")
+                            with col3:
+                                st.metric("Lowest PSA", f"{min(values):.2f} ng/mL")
+                            with col4:
+                                st.metric("Total Tests", len(values))
+                    else:
+                        st.warning("No PSA results found in the documents.")
+                else:
+                    # For other queries, use direct document search
+                    medical_data = extract_medical_data(docs, 'general')
+                    if medical_data.get('results'):
+                        for result in medical_data['results']:
+                            st.write(f"**Context:** {result['context']}")
+                            st.write("---")
+                    else:
+                        st.info("No relevant information found for your query.")
+            else:
+                st.warning("Please process documents first by clicking 'Process Documents for RAG' button.")
