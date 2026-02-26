@@ -72,17 +72,19 @@ export default function Login() {
           </div>
           
           <div className="space-y-2 relative z-10">
-            <h2 className="text-3xl font-bold">Welcome Back</h2>
-            <p className="text-muted-foreground">Please sign in to access your profiles and reports.</p>
+            <h2 className="text-3xl font-bold">Get Started</h2>
+            <p className="text-muted-foreground">Create your free account to manage profiles and reports.</p>
           </div>
 
           <div className="w-full relative z-10">
             <Button 
               className="w-full text-lg py-6 shadow-xl"
               onClick={() => window.location.href = "/api/login"}
+              data-testid="button-signup"
             >
-              Continue with Replit
+              Sign Up for Free
             </Button>
+            <p className="text-sm text-muted-foreground mt-3">Already have an account? Click above to sign in.</p>
           </div>
           <p className="text-xs text-muted-foreground mt-4 relative z-10">
             By continuing, you agree to our terms of service and privacy policy.
