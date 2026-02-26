@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
+import { useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { Activity, ShieldCheck, HeartPulse, BarChart3, Mic } from "lucide-react";
 import { motion } from "framer-motion";
@@ -8,17 +9,18 @@ export default function Signup() {
   const { isAuthenticated, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
-  if (isLoading) {
+  useEffect(() => {
+    if (isAuthenticated) {
+      setLocation("/dashboard");
+    }
+  }, [isAuthenticated, setLocation]);
+
+  if (isLoading || isAuthenticated) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
-  }
-
-  if (isAuthenticated) {
-    setLocation("/dashboard");
-    return null;
   }
 
   return (

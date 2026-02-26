@@ -35,8 +35,13 @@ export const patientConversations = pgTable("patient_conversations", {
   conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
 });
 
-export const insertPatientProfileSchema = createInsertSchema(patientProfiles).omit({ id: true, createdAt: true });
-export const insertMedicalReportSchema = createInsertSchema(medicalReports).omit({ id: true, createdAt: true });
+export const insertPatientProfileSchema = createInsertSchema(patientProfiles, {
+  dateOfBirth: z.union([z.string(), z.date()]).optional().transform(val => val ? new Date(val) : undefined),
+}).omit({ id: true, createdAt: true });
+
+export const insertMedicalReportSchema = createInsertSchema(medicalReports, {
+  reportDate: z.union([z.string(), z.date()]).transform(val => new Date(val)),
+}).omit({ id: true, createdAt: true });
 
 export type PatientProfile = typeof patientProfiles.$inferSelect;
 export type InsertPatientProfile = z.infer<typeof insertPatientProfileSchema>;
