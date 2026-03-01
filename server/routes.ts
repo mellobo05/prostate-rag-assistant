@@ -10,7 +10,7 @@ import express from "express";
 import multer from "multer";
 import { processPdfBuffer, queryRag, getUploadedDocuments } from "./pdf-rag";
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -147,9 +147,12 @@ Please analyze this data and provide a concise summary and next steps.`;
         chunksCreated: result.chunksCreated,
         reportsExtracted: result.reportsExtracted,
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("PDF upload error:", err);
-      res.status(500).json({ message: "Failed to process PDF" });
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ message: "File too large. Maximum size is 50MB." });
+      }
+      res.status(500).json({ message: err.message || "Failed to process document" });
     }
   });
 
