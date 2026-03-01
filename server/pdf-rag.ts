@@ -3,6 +3,7 @@ import { documentChunks, medicalReports } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { openai } from "./replit_integrations/audio/client";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
+import sharp from "sharp";
 
 const textSplitter = new RecursiveCharacterTextSplitter({
   chunkSize: 1000,
@@ -30,63 +31,15 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-async function extractTextFromImagePdf(pdfBuffer: Buffer): Promise<string> {
-  const base64Pdf = pdfBuffer.toString("base64");
-
-  const batchSize = 5;
-  let allText = "";
-  let pageOffset = 0;
-  let hasMorePages = true;
-
-  while (hasMorePages) {
-    try {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "system",
-            content: `You are an OCR assistant. Extract ALL text visible in this medical document image/PDF. 
-Preserve the structure, dates, numbers, and medical values accurately. 
-Include headers, table data, lab values, dates, doctor names, hospital names, and all medical information.
-Return ONLY the extracted text, nothing else.`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:application/pdf;base64,${base64Pdf}`,
-                  detail: "high"
-                }
-              },
-              {
-                type: "text",
-                text: "Extract all text from this medical document. Include every detail - dates, numbers, lab values, names, addresses, and findings."
-              }
-            ]
-          }
-        ],
-        max_tokens: 4096,
-      });
-
-      const extractedText = response.choices[0]?.message?.content || "";
-      if (extractedText.trim()) {
-        allText += (allText ? "\n\n" : "") + extractedText;
-      }
-      hasMorePages = false;
-    } catch (err) {
-      console.error("[pdf-rag] Vision OCR error:", err);
-      hasMorePages = false;
-    }
-    pageOffset += batchSize;
-  }
-
-  return allText;
+async function compressImageForVision(imageBuffer: Buffer): Promise<string> {
+  const compressed = await sharp(imageBuffer)
+    .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 80 })
+    .toBuffer();
+  return compressed.toString("base64");
 }
 
-async function extractTextFromImage(imageBuffer: Buffer, mimeType: string): Promise<string> {
-  const base64 = imageBuffer.toString("base64");
+async function ocrImageBuffer(imageBase64: string): Promise<string> {
   const response = await openai.chat.completions.create({
     model: "gpt-4o",
     messages: [
@@ -103,13 +56,13 @@ Return ONLY the extracted text, nothing else.`
           {
             type: "image_url",
             image_url: {
-              url: `data:${mimeType};base64,${base64}`,
+              url: `data:image/jpeg;base64,${imageBase64}`,
               detail: "high"
             }
           },
           {
             type: "text",
-            text: "Extract all text from this medical document image. Include every detail."
+            text: "Extract all text from this medical document. Include every detail - dates, numbers, lab values, names, and findings."
           }
         ]
       }
@@ -117,6 +70,30 @@ Return ONLY the extracted text, nothing else.`
     max_tokens: 4096,
   });
   return response.choices[0]?.message?.content || "";
+}
+
+async function extractTextFromImagePdf(pdfBuffer: Buffer): Promise<string> {
+  const base64 = await compressImageForVision(pdfBuffer);
+  return await ocrImageBuffer(base64);
+}
+
+async function extractTextFromMultiPagePdf(pdfBuffer: Buffer): Promise<string> {
+  try {
+    const base64 = await compressImageForVision(pdfBuffer);
+    return await ocrImageBuffer(base64);
+  } catch (err) {
+    console.error("[pdf-rag] Single-pass OCR failed, trying as raw image:", err);
+    try {
+      const rawBase64 = pdfBuffer.toString("base64");
+      if (rawBase64.length > 10 * 1024 * 1024) {
+        throw new Error("File too large for vision API even after compression");
+      }
+      return await ocrImageBuffer(rawBase64);
+    } catch (err2) {
+      console.error("[pdf-rag] Raw OCR also failed:", err2);
+      throw err2;
+    }
+  }
 }
 
 function getMimeType(fileName: string): string {
@@ -149,31 +126,34 @@ export async function processPdfBuffer(
   if (isImageFile(fileName)) {
     console.log("[pdf-rag] Image file detected, using Vision OCR...");
     try {
-      pdfText = await extractTextFromImage(pdfBuffer, getMimeType(fileName));
+      const base64 = await compressImageForVision(pdfBuffer);
+      pdfText = await ocrImageBuffer(base64);
     } catch (err) {
       console.error("[pdf-rag] Image OCR failed:", err);
     }
   } else {
     try {
-      const pdfParse = (await import("pdf-parse")).default;
+      const pdfParseModule = await import("pdf-parse");
+      const pdfParse = pdfParseModule.default || pdfParseModule;
       const pdfData = await pdfParse(pdfBuffer);
       pdfText = pdfData.text?.trim() || "";
+      console.log(`[pdf-rag] pdf-parse extracted ${pdfText.length} chars`);
     } catch (err) {
-      console.log("[pdf-rag] pdf-parse failed, will try vision OCR:", err);
+      console.log("[pdf-rag] pdf-parse failed, will try vision OCR:", (err as Error).message);
     }
 
     if (!pdfText || pdfText.length < 50) {
       console.log("[pdf-rag] Text extraction minimal, using OpenAI Vision OCR...");
       try {
-        pdfText = await extractTextFromImagePdf(pdfBuffer);
+        pdfText = await extractTextFromMultiPagePdf(pdfBuffer);
       } catch (err) {
-        console.error("[pdf-rag] Vision OCR also failed:", err);
+        console.error("[pdf-rag] Vision OCR also failed:", (err as Error).message);
       }
     }
   }
 
   if (!pdfText || pdfText.trim().length === 0) {
-    throw new Error("Could not extract text from this document. The file may be corrupted or in an unsupported format.");
+    throw new Error("Could not extract text from this document. Please try uploading individual pages as images (JPG/PNG).");
   }
 
   console.log(`[pdf-rag] Extracted ${pdfText.length} chars from ${fileName}`);
