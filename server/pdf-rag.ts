@@ -4,6 +4,10 @@ import { eq } from "drizzle-orm";
 import { openai } from "./replit_integrations/audio/client";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import sharp from "sharp";
+import { execSync } from "child_process";
+import { writeFileSync, readFileSync, unlinkSync, readdirSync, mkdirSync, existsSync } from "fs";
+import path from "path";
+import os from "os";
 
 const textSplitter = new RecursiveCharacterTextSplitter({
   chunkSize: 1000,
@@ -29,6 +33,36 @@ function cosineSimilarity(a: number[], b: number[]): number {
     normB += b[i] * b[i];
   }
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function pdfToImages(pdfBuffer: Buffer): Buffer[] {
+  const tmpDir = path.join(os.tmpdir(), `pdf-ocr-${Date.now()}`);
+  mkdirSync(tmpDir, { recursive: true });
+  const pdfPath = path.join(tmpDir, "input.pdf");
+  const outputPrefix = path.join(tmpDir, "page");
+
+  try {
+    writeFileSync(pdfPath, pdfBuffer);
+    execSync(`pdftoppm -jpeg -r 200 "${pdfPath}" "${outputPrefix}"`, { timeout: 60000 });
+
+    const files = readdirSync(tmpDir)
+      .filter(f => f.startsWith("page") && f.endsWith(".jpg"))
+      .sort();
+
+    const images: Buffer[] = [];
+    for (const file of files) {
+      images.push(readFileSync(path.join(tmpDir, file)));
+    }
+    return images;
+  } finally {
+    try {
+      const files = readdirSync(tmpDir);
+      for (const file of files) {
+        unlinkSync(path.join(tmpDir, file));
+      }
+      execSync(`rmdir "${tmpDir}"`);
+    } catch {}
+  }
 }
 
 async function compressImageForVision(imageBuffer: Buffer): Promise<string> {
@@ -72,48 +106,32 @@ Return ONLY the extracted text, nothing else.`
   return response.choices[0]?.message?.content || "";
 }
 
-async function extractTextFromImagePdf(pdfBuffer: Buffer): Promise<string> {
-  const base64 = await compressImageForVision(pdfBuffer);
-  return await ocrImageBuffer(base64);
-}
-
-async function extractTextFromMultiPagePdf(pdfBuffer: Buffer): Promise<string> {
-  try {
-    const base64 = await compressImageForVision(pdfBuffer);
-    return await ocrImageBuffer(base64);
-  } catch (err) {
-    console.error("[pdf-rag] Single-pass OCR failed, trying as raw image:", err);
-    try {
-      const rawBase64 = pdfBuffer.toString("base64");
-      if (rawBase64.length > 10 * 1024 * 1024) {
-        throw new Error("File too large for vision API even after compression");
-      }
-      return await ocrImageBuffer(rawBase64);
-    } catch (err2) {
-      console.error("[pdf-rag] Raw OCR also failed:", err2);
-      throw err2;
-    }
-  }
-}
-
-function getMimeType(fileName: string): string {
-  const ext = fileName.toLowerCase().split(".").pop();
-  const mimeTypes: Record<string, string> = {
-    pdf: "application/pdf",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    tiff: "image/tiff",
-    tif: "image/tiff",
-    bmp: "image/bmp",
-    webp: "image/webp",
-  };
-  return mimeTypes[ext || ""] || "application/octet-stream";
-}
-
 function isImageFile(fileName: string): boolean {
   const ext = fileName.toLowerCase().split(".").pop();
   return ["jpg", "jpeg", "png", "tiff", "tif", "bmp", "webp"].includes(ext || "");
+}
+
+async function extractTextWithPdfParse(pdfBuffer: Buffer): Promise<string> {
+  try {
+    const pdfParseModule = await import("pdf-parse");
+    const parseFn = typeof pdfParseModule === "function"
+      ? pdfParseModule
+      : typeof pdfParseModule.default === "function"
+        ? pdfParseModule.default
+        : null;
+
+    if (!parseFn) {
+      const pdf = require("pdf-parse");
+      const data = await pdf(pdfBuffer);
+      return data.text?.trim() || "";
+    }
+
+    const data = await parseFn(pdfBuffer);
+    return data.text?.trim() || "";
+  } catch (err) {
+    console.log("[pdf-rag] pdf-parse failed:", (err as Error).message);
+    return "";
+  }
 }
 
 export async function processPdfBuffer(
@@ -129,34 +147,43 @@ export async function processPdfBuffer(
       const base64 = await compressImageForVision(pdfBuffer);
       pdfText = await ocrImageBuffer(base64);
     } catch (err) {
-      console.error("[pdf-rag] Image OCR failed:", err);
+      console.error("[pdf-rag] Image OCR failed:", (err as Error).message);
     }
   } else {
-    try {
-      const pdfParseModule = await import("pdf-parse");
-      const pdfParse = pdfParseModule.default || pdfParseModule;
-      const pdfData = await pdfParse(pdfBuffer);
-      pdfText = pdfData.text?.trim() || "";
-      console.log(`[pdf-rag] pdf-parse extracted ${pdfText.length} chars`);
-    } catch (err) {
-      console.log("[pdf-rag] pdf-parse failed, will try vision OCR:", (err as Error).message);
-    }
+    pdfText = await extractTextWithPdfParse(pdfBuffer);
+    console.log(`[pdf-rag] pdf-parse extracted ${pdfText.length} chars`);
 
     if (!pdfText || pdfText.length < 50) {
-      console.log("[pdf-rag] Text extraction minimal, using OpenAI Vision OCR...");
+      console.log("[pdf-rag] Text extraction minimal, converting PDF pages to images for OCR...");
       try {
-        pdfText = await extractTextFromMultiPagePdf(pdfBuffer);
+        const pageImages = pdfToImages(pdfBuffer);
+        console.log(`[pdf-rag] Converted PDF to ${pageImages.length} page images`);
+
+        const pageTexts: string[] = [];
+        for (let i = 0; i < pageImages.length; i++) {
+          console.log(`[pdf-rag] OCR processing page ${i + 1}/${pageImages.length}...`);
+          try {
+            const base64 = await compressImageForVision(pageImages[i]);
+            const pageText = await ocrImageBuffer(base64);
+            if (pageText.trim()) {
+              pageTexts.push(pageText);
+            }
+          } catch (err) {
+            console.error(`[pdf-rag] OCR failed for page ${i + 1}:`, (err as Error).message);
+          }
+        }
+        pdfText = pageTexts.join("\n\n--- Page Break ---\n\n");
       } catch (err) {
-        console.error("[pdf-rag] Vision OCR also failed:", (err as Error).message);
+        console.error("[pdf-rag] PDF to image conversion failed:", (err as Error).message);
       }
     }
   }
 
   if (!pdfText || pdfText.trim().length === 0) {
-    throw new Error("Could not extract text from this document. Please try uploading individual pages as images (JPG/PNG).");
+    throw new Error("Could not extract text from this document. The file may be corrupted.");
   }
 
-  console.log(`[pdf-rag] Extracted ${pdfText.length} chars from ${fileName}`);
+  console.log(`[pdf-rag] Total extracted ${pdfText.length} chars from ${fileName}`);
 
   const chunks = await textSplitter.splitText(pdfText);
   let chunksCreated = 0;
