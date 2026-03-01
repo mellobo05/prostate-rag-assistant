@@ -35,6 +35,16 @@ export const patientConversations = pgTable("patient_conversations", {
   conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
 });
 
+export const documentChunks = pgTable("document_chunks", {
+  id: serial("id").primaryKey(),
+  patientId: integer("patient_id").notNull().references(() => patientProfiles.id, { onDelete: "cascade" }),
+  fileName: text("file_name").notNull(),
+  chunkIndex: integer("chunk_index").notNull(),
+  content: text("content").notNull(),
+  embedding: text("embedding"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertPatientProfileSchema = createInsertSchema(patientProfiles, {
   dateOfBirth: z.union([z.string(), z.date()]).optional().transform(val => val ? new Date(val) : undefined),
 }).omit({ id: true, createdAt: true });
@@ -42,6 +52,8 @@ export const insertPatientProfileSchema = createInsertSchema(patientProfiles, {
 export const insertMedicalReportSchema = createInsertSchema(medicalReports, {
   reportDate: z.union([z.string(), z.date()]).transform(val => new Date(val)),
 }).omit({ id: true, createdAt: true });
+
+export type DocumentChunk = typeof documentChunks.$inferSelect;
 
 export type PatientProfile = typeof patientProfiles.$inferSelect;
 export type InsertPatientProfile = z.infer<typeof insertPatientProfileSchema>;

@@ -7,6 +7,10 @@ import { openai, ensureCompatibleFormat, speechToText } from "./replit_integrati
 import { chatStorage } from "./replit_integrations/chat/storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import express from "express";
+import multer from "multer";
+import { processPdfText, queryRag, getUploadedDocuments } from "./pdf-rag";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 export async function registerRoutes(
   httpServer: Server,
@@ -122,6 +126,75 @@ Please analyze this data and provide a concise summary and next steps.`;
     } catch (error) {
       console.error("AI Analysis error:", error);
       res.status(500).json({ message: "Failed to generate analysis" });
+    }
+  });
+
+  // PDF UPLOAD
+  app.post("/api/profiles/:patientId/upload-pdf", isAuthenticated, upload.single("pdf"), async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const patientId = Number(req.params.patientId);
+      const profile = await storage.getProfileByUserIdAndId(userId, patientId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+
+      if (!req.file) return res.status(400).json({ message: "No PDF file uploaded" });
+
+      const pdfParse = (await import("pdf-parse")).default;
+      const pdfData = await pdfParse(req.file.buffer);
+      const pdfText = pdfData.text;
+
+      if (!pdfText || pdfText.trim().length === 0) {
+        return res.status(400).json({ message: "Could not extract text from PDF. The file may be image-based." });
+      }
+
+      const result = await processPdfText(patientId, req.file.originalname, pdfText);
+
+      res.json({
+        message: `Document processed successfully`,
+        fileName: req.file.originalname,
+        chunksCreated: result.chunksCreated,
+        reportsExtracted: result.reportsExtracted,
+      });
+    } catch (err) {
+      console.error("PDF upload error:", err);
+      res.status(500).json({ message: "Failed to process PDF" });
+    }
+  });
+
+  // RAG QUERY
+  app.post("/api/profiles/:patientId/query", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const patientId = Number(req.params.patientId);
+      const profile = await storage.getProfileByUserIdAndId(userId, patientId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+
+      const { question } = req.body;
+      if (!question || typeof question !== "string") {
+        return res.status(400).json({ message: "Question is required" });
+      }
+
+      const answer = await queryRag(patientId, question);
+      res.json({ answer });
+    } catch (err) {
+      console.error("RAG query error:", err);
+      res.status(500).json({ message: "Failed to query documents" });
+    }
+  });
+
+  // LIST UPLOADED DOCUMENTS
+  app.get("/api/profiles/:patientId/documents", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const patientId = Number(req.params.patientId);
+      const profile = await storage.getProfileByUserIdAndId(userId, patientId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+
+      const documents = await getUploadedDocuments(patientId);
+      res.json({ documents });
+    } catch (err) {
+      console.error("Documents list error:", err);
+      res.status(500).json({ message: "Failed to fetch documents" });
     }
   });
 
