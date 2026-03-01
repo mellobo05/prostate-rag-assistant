@@ -1,21 +1,14 @@
 import { db } from "./db";
 import { documentChunks, medicalReports } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { openai } from "./replit_integrations/audio/client";
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 
-const CHUNK_SIZE = 1000;
-const CHUNK_OVERLAP = 200;
-
-function chunkText(text: string): string[] {
-  const chunks: string[] = [];
-  let start = 0;
-  while (start < text.length) {
-    const end = Math.min(start + CHUNK_SIZE, text.length);
-    chunks.push(text.slice(start, end));
-    start += CHUNK_SIZE - CHUNK_OVERLAP;
-  }
-  return chunks;
-}
+const textSplitter = new RecursiveCharacterTextSplitter({
+  chunkSize: 1000,
+  chunkOverlap: 200,
+  separators: ["\n\n", "\n", ". ", " ", ""],
+});
 
 async function getEmbedding(text: string): Promise<number[]> {
   const response = await openai.embeddings.create({
@@ -37,12 +30,155 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-export async function processPdfText(
+async function extractTextFromImagePdf(pdfBuffer: Buffer): Promise<string> {
+  const base64Pdf = pdfBuffer.toString("base64");
+
+  const batchSize = 5;
+  let allText = "";
+  let pageOffset = 0;
+  let hasMorePages = true;
+
+  while (hasMorePages) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: `You are an OCR assistant. Extract ALL text visible in this medical document image/PDF. 
+Preserve the structure, dates, numbers, and medical values accurately. 
+Include headers, table data, lab values, dates, doctor names, hospital names, and all medical information.
+Return ONLY the extracted text, nothing else.`
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:application/pdf;base64,${base64Pdf}`,
+                  detail: "high"
+                }
+              },
+              {
+                type: "text",
+                text: "Extract all text from this medical document. Include every detail - dates, numbers, lab values, names, addresses, and findings."
+              }
+            ]
+          }
+        ],
+        max_tokens: 4096,
+      });
+
+      const extractedText = response.choices[0]?.message?.content || "";
+      if (extractedText.trim()) {
+        allText += (allText ? "\n\n" : "") + extractedText;
+      }
+      hasMorePages = false;
+    } catch (err) {
+      console.error("[pdf-rag] Vision OCR error:", err);
+      hasMorePages = false;
+    }
+    pageOffset += batchSize;
+  }
+
+  return allText;
+}
+
+async function extractTextFromImage(imageBuffer: Buffer, mimeType: string): Promise<string> {
+  const base64 = imageBuffer.toString("base64");
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "system",
+        content: `You are an OCR assistant. Extract ALL text visible in this medical document image.
+Preserve the structure, dates, numbers, and medical values accurately.
+Include headers, table data, lab values, dates, doctor names, hospital names, and all medical information.
+Return ONLY the extracted text, nothing else.`
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: {
+              url: `data:${mimeType};base64,${base64}`,
+              detail: "high"
+            }
+          },
+          {
+            type: "text",
+            text: "Extract all text from this medical document image. Include every detail."
+          }
+        ]
+      }
+    ],
+    max_tokens: 4096,
+  });
+  return response.choices[0]?.message?.content || "";
+}
+
+function getMimeType(fileName: string): string {
+  const ext = fileName.toLowerCase().split(".").pop();
+  const mimeTypes: Record<string, string> = {
+    pdf: "application/pdf",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    tiff: "image/tiff",
+    tif: "image/tiff",
+    bmp: "image/bmp",
+    webp: "image/webp",
+  };
+  return mimeTypes[ext || ""] || "application/octet-stream";
+}
+
+function isImageFile(fileName: string): boolean {
+  const ext = fileName.toLowerCase().split(".").pop();
+  return ["jpg", "jpeg", "png", "tiff", "tif", "bmp", "webp"].includes(ext || "");
+}
+
+export async function processPdfBuffer(
   patientId: number,
   fileName: string,
-  pdfText: string
+  pdfBuffer: Buffer
 ): Promise<{ chunksCreated: number; reportsExtracted: number }> {
-  const chunks = chunkText(pdfText);
+  let pdfText = "";
+
+  if (isImageFile(fileName)) {
+    console.log("[pdf-rag] Image file detected, using Vision OCR...");
+    try {
+      pdfText = await extractTextFromImage(pdfBuffer, getMimeType(fileName));
+    } catch (err) {
+      console.error("[pdf-rag] Image OCR failed:", err);
+    }
+  } else {
+    try {
+      const pdfParse = (await import("pdf-parse")).default;
+      const pdfData = await pdfParse(pdfBuffer);
+      pdfText = pdfData.text?.trim() || "";
+    } catch (err) {
+      console.log("[pdf-rag] pdf-parse failed, will try vision OCR:", err);
+    }
+
+    if (!pdfText || pdfText.length < 50) {
+      console.log("[pdf-rag] Text extraction minimal, using OpenAI Vision OCR...");
+      try {
+        pdfText = await extractTextFromImagePdf(pdfBuffer);
+      } catch (err) {
+        console.error("[pdf-rag] Vision OCR also failed:", err);
+      }
+    }
+  }
+
+  if (!pdfText || pdfText.trim().length === 0) {
+    throw new Error("Could not extract text from this document. The file may be corrupted or in an unsupported format.");
+  }
+
+  console.log(`[pdf-rag] Extracted ${pdfText.length} chars from ${fileName}`);
+
+  const chunks = await textSplitter.splitText(pdfText);
   let chunksCreated = 0;
 
   for (let i = 0; i < chunks.length; i++) {
@@ -72,12 +208,12 @@ export async function processPdfText(
     }
   }
 
-  const reportsExtracted = await extractReportsFromPdf(patientId, pdfText);
+  const reportsExtracted = await extractReportsFromText(patientId, pdfText);
 
   return { chunksCreated, reportsExtracted };
 }
 
-async function extractReportsFromPdf(patientId: number, pdfText: string): Promise<number> {
+async function extractReportsFromText(patientId: number, pdfText: string): Promise<number> {
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-5.1",
@@ -86,13 +222,13 @@ async function extractReportsFromPdf(patientId: number, pdfText: string): Promis
           role: "system",
           content: `You are a medical data extraction assistant. Extract all PSA test results and other medical reports from the provided document text.
 
-Return a JSON array of objects with these fields:
+Return a JSON object with a "reports" key containing an array of objects with these fields:
 - reportDate: ISO date string (YYYY-MM-DD)
 - reportType: one of "PSA", "PET Scan", "Biopsy", "Blood Test", "Other"
 - psaLevel: PSA value as string (only for PSA reports), e.g. "4.5"
 - findings: brief summary of findings
 
-Only include data that is clearly present in the document. If no reports found, return an empty array.
+Only include data that is clearly present in the document. If no reports found, return {"reports": []}.
 Return ONLY valid JSON, no markdown or explanation.`
         },
         {

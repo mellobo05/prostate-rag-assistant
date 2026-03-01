@@ -8,7 +8,7 @@ import { chatStorage } from "./replit_integrations/chat/storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import express from "express";
 import multer from "multer";
-import { processPdfText, queryRag, getUploadedDocuments } from "./pdf-rag";
+import { processPdfBuffer, queryRag, getUploadedDocuments } from "./pdf-rag";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
@@ -137,17 +137,9 @@ Please analyze this data and provide a concise summary and next steps.`;
       const profile = await storage.getProfileByUserIdAndId(userId, patientId);
       if (!profile) return res.status(404).json({ message: "Profile not found" });
 
-      if (!req.file) return res.status(400).json({ message: "No PDF file uploaded" });
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
-      const pdfParse = (await import("pdf-parse")).default;
-      const pdfData = await pdfParse(req.file.buffer);
-      const pdfText = pdfData.text;
-
-      if (!pdfText || pdfText.trim().length === 0) {
-        return res.status(400).json({ message: "Could not extract text from PDF. The file may be image-based." });
-      }
-
-      const result = await processPdfText(patientId, req.file.originalname, pdfText);
+      const result = await processPdfBuffer(patientId, req.file.originalname, req.file.buffer);
 
       res.json({
         message: `Document processed successfully`,

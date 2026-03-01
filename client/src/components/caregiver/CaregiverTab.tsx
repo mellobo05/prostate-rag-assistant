@@ -90,20 +90,20 @@ export function CaregiverTab({ profile }: { profile: PatientProfile }) {
               </h3>
             </div>
             <p className="text-muted-foreground text-sm mb-4">
-              Upload PDF reports to automatically extract PSA levels, findings, and enable Q&A on your documents.
+              Upload medical documents (PDF, images) to automatically extract PSA levels, findings, and enable Q&A. Supports scanned/image-based documents.
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <label className="cursor-pointer" data-testid="button-upload-pdf">
                 <input
                   type="file"
-                  accept=".pdf"
+                  accept=".pdf,.jpg,.jpeg,.png,.tiff,.bmp"
                   className="hidden"
                   onChange={handlePdfUpload}
                   disabled={uploadPdf.isPending}
                 />
                 <div className="inline-flex items-center gap-2 px-5 py-3 bg-primary text-primary-foreground rounded-xl font-medium hover:opacity-90 transition-opacity">
                   <FileUp className="w-4 h-4" />
-                  {uploadPdf.isPending ? "Processing..." : "Choose PDF"}
+                  {uploadPdf.isPending ? "Processing..." : "Choose File"}
                 </div>
               </label>
               {uploadPdf.isPending && (
