@@ -113,21 +113,18 @@ function isImageFile(fileName: string): boolean {
 
 async function extractTextWithPdfParse(pdfBuffer: Buffer): Promise<string> {
   try {
-    const pdfParseModule = await import("pdf-parse");
-    const parseFn = typeof pdfParseModule === "function"
-      ? pdfParseModule
-      : typeof pdfParseModule.default === "function"
-        ? pdfParseModule.default
-        : null;
+    const { PDFParse } = require("pdf-parse");
+    const uint8 = new Uint8Array(pdfBuffer);
+    const parser = new PDFParse(uint8);
+    const result = await parser.getText();
 
-    if (!parseFn) {
-      const pdf = require("pdf-parse");
-      const data = await pdf(pdfBuffer);
-      return data.text?.trim() || "";
+    let fullText = "";
+    if (result && result.pages && Array.isArray(result.pages)) {
+      fullText = result.pages.map((p: any) => p.text || "").join("\n\n");
+    } else if (result && typeof result.text === "string") {
+      fullText = result.text;
     }
-
-    const data = await parseFn(pdfBuffer);
-    return data.text?.trim() || "";
+    return fullText.trim();
   } catch (err) {
     console.log("[pdf-rag] pdf-parse failed:", (err as Error).message);
     return "";
