@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PsaChart } from "./PsaChart";
-import { Plus, Brain, FileText, Calendar, Activity, Upload, MessageSquare, FileUp, Loader2, Send, Microscope, BookOpen, FlaskConical, TrendingUp, Search, Pill } from "lucide-react";
+import { Plus, Brain, FileText, Calendar, Activity, Upload, MessageSquare, FileUp, Loader2, Send, Microscope } from "lucide-react";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
 
@@ -219,45 +219,20 @@ export function CaregiverTab({ profile }: { profile: PatientProfile }) {
             )}
           </div>
 
-          <div className="glass-card p-6 rounded-3xl bg-gradient-to-br from-white to-accent/20">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h3 className="text-xl font-bold flex items-center gap-2 mb-2">
-                  <Brain className="w-5 h-5 text-primary"/> AI Analysis & Treatment Plan
-                </h3>
-                <p className="text-muted-foreground text-sm max-w-xl mb-4">
-                  Generate a comprehensive summary of the medical history, recent reports, and suggested next steps based on latest oncology guidelines.
-                </p>
-              </div>
-              <Button onClick={handleAnalyze} isLoading={analyze.isPending} className="shrink-0" data-testid="button-analyze">
-                Generate Analysis
-              </Button>
-            </div>
-
-            {analysisResult && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                className="mt-6 p-5 bg-white/80 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-inner border border-border"
-                data-testid="text-analysis-result"
-              >
-                {analysisResult}
-              </motion.div>
-            )}
-            {analyze.isError && (
-              <div className="mt-4 p-4 bg-destructive/10 text-destructive rounded-xl text-sm font-medium">
-                Failed to generate analysis. Ensure the backend endpoint is fully implemented.
-              </div>
-            )}
-          </div>
-
           <div className="glass-card p-6 rounded-3xl bg-gradient-to-br from-white to-primary/5 border-2 border-primary/20">
             <h3 className="text-xl font-bold flex items-center gap-2 mb-2">
-              <Microscope className="w-5 h-5 text-primary"/> AI Agent Analysis
+              <Brain className="w-5 h-5 text-primary"/> AI Analysis & Treatment Plan
             </h3>
             <p className="text-muted-foreground text-sm mb-4">
-              Advanced multi-tool AI agent that searches PubMed, CIViC genomics, NCCN guidelines, clinical trials, and analyzes PSA trends to provide evidence-based insights.
+              Generate a quick summary or run a deep multi-tool AI agent that searches PubMed, CIViC genomics, NCCN guidelines, clinical trials, and analyzes PSA trends.
             </p>
+
+            <div className="flex items-center gap-3 mb-5">
+              <Button onClick={handleAnalyze} isLoading={analyze.isPending} variant="secondary" className="shrink-0" data-testid="button-analyze">
+                <Brain className="w-4 h-4 mr-1" /> Quick Summary
+              </Button>
+              <span className="text-xs text-muted-foreground">or ask the agent below</span>
+            </div>
 
             <form onSubmit={handleAgentAnalyze} className="flex gap-2 mb-4" data-testid="form-agent">
               <input
@@ -270,18 +245,31 @@ export function CaregiverTab({ profile }: { profile: PatientProfile }) {
                 data-testid="input-agent-question"
               />
               <Button type="submit" isLoading={agentAnalysis.isPending} className="shrink-0" data-testid="button-agent-analyze">
-                <FlaskConical className="w-4 h-4 mr-1" /> Analyze
+                <Microscope className="w-4 h-4 mr-1" /> Deep Analysis
               </Button>
             </form>
 
-            {agentAnalysis.isPending && (
+            {(analyze.isPending || agentAnalysis.isPending) && (
               <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-xl mb-4">
                 <Loader2 className="w-5 h-5 animate-spin text-primary" />
                 <div>
-                  <p className="text-sm font-medium">Agent is working...</p>
-                  <p className="text-xs text-muted-foreground">Searching medical databases, analyzing trends, and synthesizing results. This may take 30-60 seconds.</p>
+                  <p className="text-sm font-medium">{agentAnalysis.isPending ? "Agent is working..." : "Generating summary..."}</p>
+                  {agentAnalysis.isPending && (
+                    <p className="text-xs text-muted-foreground">Searching medical databases, analyzing trends, and synthesizing results. This may take 30-60 seconds.</p>
+                  )}
                 </div>
               </div>
+            )}
+
+            {analysisResult && !agentResult && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="p-5 bg-white/80 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-inner border border-border max-h-[600px] overflow-y-auto"
+                data-testid="text-analysis-result"
+              >
+                {analysisResult}
+              </motion.div>
             )}
 
             {agentResult && (
@@ -312,6 +300,12 @@ export function CaregiverTab({ profile }: { profile: PatientProfile }) {
                   {agentResult.analysis}
                 </div>
               </motion.div>
+            )}
+
+            {analyze.isError && (
+              <div className="mt-4 p-4 bg-destructive/10 text-destructive rounded-xl text-sm font-medium">
+                Failed to generate analysis. Please try again.
+              </div>
             )}
             {agentAnalysis.isError && (
               <div className="mt-4 p-4 bg-destructive/10 text-destructive rounded-xl text-sm font-medium">

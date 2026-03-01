@@ -15,6 +15,10 @@ interface StreamCallbacks {
 export function useVoiceStream(callbacks: StreamCallbacks = {}) {
   const playback = useAudioPlayback();
 
+  const ensureReady = useCallback(async () => {
+    await playback.init();
+  }, [playback]);
+
   const streamVoiceResponse = useCallback(
     async (url: string, audioBlob: Blob) => {
       await playback.init();
@@ -88,5 +92,5 @@ export function useVoiceStream(callbacks: StreamCallbacks = {}) {
     [playback, callbacks]
   );
 
-  return { streamVoiceResponse, playbackState: playback.state };
+  return { streamVoiceResponse, ensureReady, playbackState: playback.state };
 }

@@ -39,7 +39,10 @@ export function PatientTab({ profile }: { profile: PatientProfile }) {
   const handleToggleRecord = async () => {
     if (recorder.state === "recording") {
       const blob = await recorder.stopRecording();
-      // Use the specific profile endpoint
+      if (!blob || blob.size === 0) {
+        setIsProcessing(false);
+        return;
+      }
       const url = `/api/profiles/${profile.id}/voice-chat`;
       
       try {
@@ -49,6 +52,7 @@ export function PatientTab({ profile }: { profile: PatientProfile }) {
         setIsProcessing(false);
       }
     } else {
+      stream.ensureReady().catch(() => {});
       await recorder.startRecording();
     }
   };

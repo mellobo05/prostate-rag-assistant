@@ -12,19 +12,23 @@ export function useVoiceRecorder() {
   const chunksRef = useRef<Blob[]>([]);
 
   const startRecording = useCallback(async (): Promise<void> => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      return;
+    }
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const recorder = new MediaRecorder(stream, {
       mimeType: "audio/webm;codecs=opus",
     });
 
-    mediaRecorderRef.current = recorder;
     chunksRef.current = [];
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
     };
 
-    recorder.start(100); // Collect chunks every 100ms
+    mediaRecorderRef.current = recorder;
+    recorder.start(100);
     setState("recording");
   }, []);
 
@@ -32,14 +36,17 @@ export function useVoiceRecorder() {
     return new Promise((resolve) => {
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state !== "recording") {
+        setState("idle");
         resolve(new Blob());
         return;
       }
 
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        chunksRef.current = [];
         recorder.stream.getTracks().forEach((t) => t.stop());
-        setState("stopped");
+        mediaRecorderRef.current = null;
+        setState("idle");
         resolve(blob);
       };
 

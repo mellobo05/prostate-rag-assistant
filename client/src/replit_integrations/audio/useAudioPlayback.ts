@@ -53,9 +53,17 @@ export function useAudioPlayback(workletPath = "/audio-playback-worklet.js") {
   const seqBufferRef = useRef(new SequenceBuffer());
 
   const init = useCallback(async () => {
-    if (readyRef.current) return;
+    if (readyRef.current) {
+      if (ctxRef.current?.state === "suspended") {
+        await ctxRef.current.resume();
+      }
+      return;
+    }
 
     const ctx = new AudioContext({ sampleRate: 24000 });
+    if (ctx.state === "suspended") {
+      await ctx.resume();
+    }
     await ctx.audioWorklet.addModule(workletPath);
     const worklet = new AudioWorkletNode(ctx, "audio-playback-processor");
     worklet.connect(ctx.destination);
