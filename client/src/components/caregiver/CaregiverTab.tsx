@@ -1,26 +1,39 @@
 import { useState } from "react";
 import { useReports, useCreateReport } from "@/hooks/use-reports";
-import { useGenerateAnalysis } from "@/hooks/use-analysis";
+import { useGenerateAnalysis, useAgentAnalysis } from "@/hooks/use-analysis";
+import type { AgentResult } from "@/hooks/use-analysis";
 import { useUploadPdf, useQueryDocuments, useDocuments } from "@/hooks/use-documents";
 import type { PatientProfile } from "@shared/schema";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PsaChart } from "./PsaChart";
-import { Plus, Brain, FileText, Calendar, Activity, Upload, MessageSquare, FileUp, Loader2, Send } from "lucide-react";
+import { Plus, Brain, FileText, Calendar, Activity, Upload, MessageSquare, FileUp, Loader2, Send, Microscope, BookOpen, FlaskConical, TrendingUp, Search, Pill } from "lucide-react";
 import { format } from "date-fns";
 import { motion } from "framer-motion";
+
+const TOOL_DISPLAY: Record<string, { label: string; icon: string; color: string }> = {
+  search_pubmed: { label: "PubMed Research", icon: "📚", color: "bg-blue-100 text-blue-800" },
+  search_civic: { label: "CIViC Genomics", icon: "🧬", color: "bg-purple-100 text-purple-800" },
+  get_treatment_guidelines: { label: "NCCN Guidelines", icon: "📋", color: "bg-green-100 text-green-800" },
+  get_drug_info: { label: "Drug Info", icon: "💊", color: "bg-orange-100 text-orange-800" },
+  analyze_psa_trend: { label: "PSA Analysis", icon: "📈", color: "bg-red-100 text-red-800" },
+  search_clinical_trials: { label: "Clinical Trials", icon: "🔬", color: "bg-teal-100 text-teal-800" },
+};
 
 export function CaregiverTab({ profile }: { profile: PatientProfile }) {
   const { data: reports, isLoading: reportsLoading } = useReports(profile.id);
   const createReport = useCreateReport(profile.id);
   const analyze = useGenerateAnalysis();
+  const agentAnalysis = useAgentAnalysis();
   const uploadPdf = useUploadPdf(profile.id);
   const queryDocs = useQueryDocuments(profile.id);
   const { data: documentsData } = useDocuments(profile.id);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [agentResult, setAgentResult] = useState<AgentResult | null>(null);
+  const [agentQuestion, setAgentQuestion] = useState("");
   const [question, setQuestion] = useState("");
   const [qaAnswer, setQaAnswer] = useState<string | null>(null);
 
@@ -42,6 +55,16 @@ export function CaregiverTab({ profile }: { profile: PatientProfile }) {
       });
       setIsModalOpen(false);
       setFormData({ ...formData, psaLevel: "", findings: "" });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAgentAnalyze = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await agentAnalysis.mutateAsync({ patientId: profile.id, question: agentQuestion || undefined });
+      setAgentResult(res);
     } catch (err) {
       console.error(err);
     }
@@ -224,6 +247,75 @@ export function CaregiverTab({ profile }: { profile: PatientProfile }) {
             {analyze.isError && (
               <div className="mt-4 p-4 bg-destructive/10 text-destructive rounded-xl text-sm font-medium">
                 Failed to generate analysis. Ensure the backend endpoint is fully implemented.
+              </div>
+            )}
+          </div>
+
+          <div className="glass-card p-6 rounded-3xl bg-gradient-to-br from-white to-primary/5 border-2 border-primary/20">
+            <h3 className="text-xl font-bold flex items-center gap-2 mb-2">
+              <Microscope className="w-5 h-5 text-primary"/> AI Agent Analysis
+            </h3>
+            <p className="text-muted-foreground text-sm mb-4">
+              Advanced multi-tool AI agent that searches PubMed, CIViC genomics, NCCN guidelines, clinical trials, and analyzes PSA trends to provide evidence-based insights.
+            </p>
+
+            <form onSubmit={handleAgentAnalyze} className="flex gap-2 mb-4" data-testid="form-agent">
+              <input
+                type="text"
+                value={agentQuestion}
+                onChange={(e) => setAgentQuestion(e.target.value)}
+                placeholder="Ask a specific question, or leave empty for full analysis..."
+                className="flex-1 px-4 py-3 rounded-xl bg-white border-2 border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
+                disabled={agentAnalysis.isPending}
+                data-testid="input-agent-question"
+              />
+              <Button type="submit" isLoading={agentAnalysis.isPending} className="shrink-0" data-testid="button-agent-analyze">
+                <FlaskConical className="w-4 h-4 mr-1" /> Analyze
+              </Button>
+            </form>
+
+            {agentAnalysis.isPending && (
+              <div className="flex items-center gap-3 p-4 bg-primary/5 rounded-xl mb-4">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                <div>
+                  <p className="text-sm font-medium">Agent is working...</p>
+                  <p className="text-xs text-muted-foreground">Searching medical databases, analyzing trends, and synthesizing results. This may take 30-60 seconds.</p>
+                </div>
+              </div>
+            )}
+
+            {agentResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="space-y-4"
+              >
+                {agentResult.tools_used.length > 0 && (
+                  <div className="flex flex-wrap gap-2" data-testid="agent-tools-used">
+                    <span className="text-xs font-semibold text-muted-foreground mr-1 self-center">Tools used:</span>
+                    {[...new Set(agentResult.tools_used.map(t => t.tool))].map(tool => {
+                      const display = TOOL_DISPLAY[tool] || { label: tool, icon: "🔧", color: "bg-gray-100 text-gray-800" };
+                      return (
+                        <span key={tool} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${display.color}`}>
+                          {display.icon} {display.label}
+                        </span>
+                      );
+                    })}
+                    <span className="text-xs text-muted-foreground self-center ml-2">({agentResult.iterations} reasoning steps)</span>
+                  </div>
+                )}
+
+                <div
+                  className="p-5 bg-white/80 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-inner border border-border max-h-[600px] overflow-y-auto"
+                  data-testid="text-agent-result"
+                >
+                  {agentResult.analysis}
+                </div>
+              </motion.div>
+            )}
+            {agentAnalysis.isError && (
+              <div className="mt-4 p-4 bg-destructive/10 text-destructive rounded-xl text-sm font-medium">
+                Agent analysis failed. Make sure the AI Agent service is running.
               </div>
             )}
           </div>

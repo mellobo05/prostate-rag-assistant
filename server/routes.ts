@@ -279,5 +279,58 @@ Please analyze this data and provide a concise summary and next steps.`;
     }
   });
 
+  // AGENT ANALYSIS (Python FastAPI proxy)
+  app.post("/api/profiles/:patientId/agent-analyze", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const patientId = Number(req.params.patientId);
+      const profile = await storage.getProfileByUserIdAndId(userId, patientId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+
+      const reports = await storage.getReports(patientId);
+      const { question } = req.body || {};
+
+      const agentPayload = {
+        profile: {
+          name: profile.name,
+          cancerType: profile.cancerType,
+          stage: profile.stage || null,
+          dateOfBirth: profile.dateOfBirth ? profile.dateOfBirth.toISOString().split("T")[0] : null,
+          medicalHistory: profile.medicalHistory || null,
+        },
+        reports: reports.map(r => ({
+          reportDate: r.reportDate.toISOString(),
+          reportType: r.reportType,
+          psaLevel: r.psaLevel || null,
+          findings: r.findings || null,
+        })),
+        question: question || null,
+      };
+
+      const agentUrl = `http://localhost:8000/api/agent/analyze`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      const agentRes = await fetch(agentUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(agentPayload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!agentRes.ok) {
+        const errText = await agentRes.text();
+        console.error("[agent-proxy] Agent error:", errText);
+        return res.status(500).json({ message: "Agent analysis failed" });
+      }
+
+      const result = await agentRes.json();
+      res.json(result);
+    } catch (err) {
+      console.error("[agent-proxy] Error:", err);
+      res.status(500).json({ message: "Failed to connect to AI agent service" });
+    }
+  });
+
   return httpServer;
 }
