@@ -262,30 +262,49 @@ export async function queryRag(patientId: number, question: string): Promise<str
     .from(documentChunks)
     .where(eq(documentChunks.patientId, patientId));
 
-  if (allChunks.length === 0) {
+  const allReports = await db
+    .select()
+    .from(medicalReports)
+    .where(eq(medicalReports.patientId, patientId));
+
+  if (allChunks.length === 0 && allReports.length === 0) {
     return "No documents have been uploaded for this patient yet. Please upload medical documents first.";
+  }
+
+  let reportsContext = "";
+  if (allReports.length > 0) {
+    const sortedReports = allReports.sort((a, b) =>
+      new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime()
+    );
+    reportsContext = "=== EXTRACTED MEDICAL REPORTS (structured, authoritative) ===\n\n";
+    for (const r of sortedReports) {
+      const date = new Date(r.reportDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+      reportsContext += `Date: ${date} | Type: ${r.reportType}`;
+      if (r.psaLevel) reportsContext += ` | PSA: ${r.psaLevel} ng/mL`;
+      reportsContext += `\nFindings: ${r.findings || "N/A"}\n\n`;
+    }
   }
 
   const scored = allChunks.map(chunk => ({
     content: chunk.content,
     score: keywordScore(chunk.content, question),
   }));
-
   scored.sort((a, b) => b.score - a.score);
+  const topChunks = scored.slice(0, 8).map(s => s.content);
+  const chunksContext = topChunks.join("\n\n---\n\n");
 
-  const topChunks = scored.slice(0, 10).map(s => s.content);
-  const context = topChunks.join("\n\n---\n\n");
+  const fullContext = reportsContext + "\n=== RAW DOCUMENT EXCERPTS ===\n\n" + chunksContext;
 
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
     messages: [
       {
         role: "system",
-        content: `You are a helpful medical assistant for caregivers. Answer questions about patient medical documents using only the provided context. Be clear, accurate, and use simple language. If the answer is not in the context, say so honestly. Format your response for easy reading.`
+        content: `You are a helpful medical assistant for caregivers. Answer questions about patient medical documents using the provided context. The "EXTRACTED MEDICAL REPORTS" section contains structured, verified data — prioritize it for factual answers about dates, PSA levels, and test results. Use the "RAW DOCUMENT EXCERPTS" for additional detail. Be clear, accurate, and use simple language. If the answer is not in the context, say so honestly. Format your response for easy reading.`
       },
       {
         role: "user",
-        content: `Context from patient documents:\n\n${context}\n\nQuestion: ${question}`
+        content: `Context from patient documents:\n\n${fullContext}\n\nQuestion: ${question}`
       }
     ],
     max_completion_tokens: 1000,
