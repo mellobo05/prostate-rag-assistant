@@ -62,8 +62,16 @@ A comprehensive cancer patient care application with web and Telegram bot interf
 - `AI_INTEGRATIONS_OPENAI_API_KEY` - OpenAI API key (Replit AI Integration)
 - `AI_INTEGRATIONS_OPENAI_BASE_URL` - OpenAI base URL (Replit AI Integration)
 
+## Caching
+- In-memory LRU cache with TTL on both Node.js and Python services
+- **Node.js (`server/cache.ts`)**: Caches RAG queries (30min), AI analysis (1hr), agent results (30min)
+- **Python (`python_api/tools.py`)**: Caches tool results (PubMed, CIViC, clinical trials) for 30min
+- Cache is invalidated per-patient when new documents are uploaded
+- Cache keys are based on patient ID + question/query + reports hash (so new reports = new results)
+
 ## Technical Notes
 - Replit's OpenAI integration does NOT support `/embeddings` endpoint - RAG uses keyword-based search
 - Use `max_completion_tokens` instead of `max_tokens` for GPT-5.1 model
 - pdf-parse API: `new PDFParse(new Uint8Array(buffer)).getText()` returns `{pages, text, total}`
 - Python service uses same OpenAI credentials via env vars
+- Python agent uses AsyncOpenAI client for non-blocking async operation

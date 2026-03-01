@@ -1,8 +1,35 @@
 import httpx
 import json
 import os
+import time
 from typing import Optional
 from medical_kb import PROSTATE_CANCER_NCCN_GUIDELINES, TREATMENT_DRUGS_INFO
+
+
+class SimpleCache:
+    def __init__(self, max_size: int = 100, ttl_seconds: int = 1800):
+        self._cache: dict[str, tuple[float, str]] = {}
+        self._max_size = max_size
+        self._ttl = ttl_seconds
+
+    def get(self, key: str) -> str | None:
+        entry = self._cache.get(key)
+        if entry is None:
+            return None
+        expires, value = entry
+        if time.time() > expires:
+            del self._cache[key]
+            return None
+        return value
+
+    def set(self, key: str, value: str) -> None:
+        if len(self._cache) >= self._max_size:
+            oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
+            del self._cache[oldest_key]
+        self._cache[key] = (time.time() + self._ttl, value)
+
+
+_tool_cache = SimpleCache(max_size=200, ttl_seconds=1800)
 
 NCBI_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 CIVIC_API = "https://civicdb.org/api/graphql"
@@ -429,12 +456,27 @@ TOOL_HANDLERS = {
 }
 
 
+CACHEABLE_TOOLS = {"search_pubmed", "search_civic", "search_clinical_trials", "get_drug_info", "get_treatment_guidelines"}
+
+
 async def execute_tool(tool_name: str, arguments: dict) -> str:
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
         return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
+    cache_key = f"{tool_name}:{json.dumps(arguments, sort_keys=True)}"
+    if tool_name in CACHEABLE_TOOLS:
+        cached = _tool_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     result = handler(arguments)
     if hasattr(result, "__await__"):
-        return await result
-    return result if isinstance(result, str) else json.dumps(result)
+        result = await result
+    if not isinstance(result, str):
+        result = json.dumps(result)
+
+    if tool_name in CACHEABLE_TOOLS:
+        _tool_cache.set(cache_key, result)
+
+    return result

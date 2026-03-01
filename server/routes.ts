@@ -9,6 +9,7 @@ import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integra
 import express from "express";
 import multer from "multer";
 import { processPdfBuffer, queryRag, getUploadedDocuments } from "./pdf-rag";
+import { ragCache, analysisCache, agentCache, ragCacheKey, analysisCacheKey, agentCacheKey, reportsHash, invalidatePatientCache } from "./cache";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -96,6 +97,14 @@ export async function registerRoutes(
 
     const reports = await storage.getReports(patientId);
 
+    const rHash = reportsHash(reports);
+    const cacheKey = analysisCacheKey(patientId, rHash);
+    const cached = analysisCache.get(cacheKey);
+    if (cached) {
+      console.log(`[cache] Analysis cache hit for patient ${patientId}`);
+      return res.json({ analysis: cached, cached: true });
+    }
+
     const systemPrompt = `You are a top oncologist specializing in prostate cancer. You are reviewing the medical history and reports of a patient.
 Create a comprehensive but accessible summary of their medical history, PSA trends, and suggest potential standard lines of treatment based on the NCCN guidelines. 
 Keep it professional but encouraging. Do not provide a formal diagnosis or replace actual doctor's advice.`;
@@ -121,6 +130,7 @@ Please analyze this data and provide a concise summary and next steps.`;
 
       const analysis = response.choices[0].message.content || "";
       await storage.updateProfileHistory(patientId, analysis);
+      analysisCache.set(cacheKey, analysis, 3600);
 
       res.json({ analysis });
     } catch (error) {
@@ -140,6 +150,8 @@ Please analyze this data and provide a concise summary and next steps.`;
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
       const result = await processPdfBuffer(patientId, req.file.originalname, req.file.buffer);
+
+      invalidatePatientCache(patientId);
 
       res.json({
         message: `Document processed successfully`,
@@ -169,7 +181,15 @@ Please analyze this data and provide a concise summary and next steps.`;
         return res.status(400).json({ message: "Question is required" });
       }
 
+      const cacheKey = ragCacheKey(patientId, question);
+      const cached = ragCache.get(cacheKey);
+      if (cached) {
+        console.log(`[cache] RAG cache hit for patient ${patientId}`);
+        return res.json({ answer: cached, cached: true });
+      }
+
       const answer = await queryRag(patientId, question);
+      ragCache.set(cacheKey, answer, 1800);
       res.json({ answer });
     } catch (err) {
       console.error("RAG query error:", err);
@@ -290,6 +310,14 @@ Please analyze this data and provide a concise summary and next steps.`;
       const reports = await storage.getReports(patientId);
       const { question } = req.body || {};
 
+      const rHash = reportsHash(reports);
+      const cacheKey = agentCacheKey(patientId, question || "", rHash);
+      const cached = agentCache.get(cacheKey);
+      if (cached) {
+        console.log(`[cache] Agent cache hit for patient ${patientId}`);
+        return res.json({ ...cached, cached: true });
+      }
+
       const agentPayload = {
         profile: {
           name: profile.name,
@@ -325,6 +353,7 @@ Please analyze this data and provide a concise summary and next steps.`;
       }
 
       const result = await agentRes.json();
+      agentCache.set(cacheKey, result, 1800);
       res.json(result);
     } catch (err) {
       console.error("[agent-proxy] Error:", err);
