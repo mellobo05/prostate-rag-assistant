@@ -253,7 +253,7 @@ CRITICAL INSTRUCTIONS:
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage }
     ],
-    max_tokens: 500,
+    max_completion_tokens: 500,
   });
 
   return response.choices[0]?.message?.content || "I'm here for you. Please tell me more about how you're feeling.";

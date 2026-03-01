@@ -5,7 +5,7 @@ import { openai } from "./replit_integrations/audio/client";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import sharp from "sharp";
 import { execSync } from "child_process";
-import { writeFileSync, readFileSync, unlinkSync, readdirSync, mkdirSync, existsSync } from "fs";
+import { writeFileSync, readFileSync, unlinkSync, readdirSync, mkdirSync } from "fs";
 import path from "path";
 import os from "os";
 
@@ -15,24 +15,16 @@ const textSplitter = new RecursiveCharacterTextSplitter({
   separators: ["\n\n", "\n", ". ", " ", ""],
 });
 
-async function getEmbedding(text: string): Promise<number[]> {
-  const response = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: text.slice(0, 8000),
-  });
-  return response.data[0].embedding;
-}
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
+function keywordScore(chunk: string, question: string): number {
+  const words = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const chunkLower = chunk.toLowerCase();
+  let score = 0;
+  for (const word of words) {
+    const regex = new RegExp(word, "gi");
+    const matches = chunkLower.match(regex);
+    if (matches) score += matches.length;
   }
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  return score;
 }
 
 function pdfToImages(pdfBuffer: Buffer): Buffer[] {
@@ -101,7 +93,7 @@ Return ONLY the extracted text, nothing else.`
         ]
       }
     ],
-    max_tokens: 4096,
+    max_completion_tokens: 4096,
   });
   return response.choices[0]?.message?.content || "";
 }
@@ -189,27 +181,14 @@ export async function processPdfBuffer(
     const chunk = chunks[i].trim();
     if (!chunk) continue;
 
-    try {
-      const embedding = await getEmbedding(chunk);
-      await db.insert(documentChunks).values({
-        patientId,
-        fileName,
-        chunkIndex: i,
-        content: chunk,
-        embedding: JSON.stringify(embedding),
-      });
-      chunksCreated++;
-    } catch (err) {
-      console.error(`[pdf-rag] Error embedding chunk ${i}:`, err);
-      await db.insert(documentChunks).values({
-        patientId,
-        fileName,
-        chunkIndex: i,
-        content: chunk,
-        embedding: null,
-      });
-      chunksCreated++;
-    }
+    await db.insert(documentChunks).values({
+      patientId,
+      fileName,
+      chunkIndex: i,
+      content: chunk,
+      embedding: null,
+    });
+    chunksCreated++;
   }
 
   const reportsExtracted = await extractReportsFromText(patientId, pdfText);
@@ -287,29 +266,15 @@ export async function queryRag(patientId: number, question: string): Promise<str
     return "No documents have been uploaded for this patient yet. Please upload medical documents first.";
   }
 
-  let relevantChunks: string[];
+  const scored = allChunks.map(chunk => ({
+    content: chunk.content,
+    score: keywordScore(chunk.content, question),
+  }));
 
-  const chunksWithEmbeddings = allChunks.filter(c => c.embedding);
+  scored.sort((a, b) => b.score - a.score);
 
-  if (chunksWithEmbeddings.length > 0) {
-    try {
-      const questionEmbedding = await getEmbedding(question);
-
-      const scored = chunksWithEmbeddings.map(chunk => ({
-        content: chunk.content,
-        score: cosineSimilarity(questionEmbedding, JSON.parse(chunk.embedding!)),
-      }));
-
-      scored.sort((a, b) => b.score - a.score);
-      relevantChunks = scored.slice(0, 5).map(s => s.content);
-    } catch {
-      relevantChunks = allChunks.slice(0, 5).map(c => c.content);
-    }
-  } else {
-    relevantChunks = allChunks.slice(0, 5).map(c => c.content);
-  }
-
-  const context = relevantChunks.join("\n\n---\n\n");
+  const topChunks = scored.slice(0, 10).map(s => s.content);
+  const context = topChunks.join("\n\n---\n\n");
 
   const response = await openai.chat.completions.create({
     model: "gpt-5.1",
@@ -323,7 +288,7 @@ export async function queryRag(patientId: number, question: string): Promise<str
         content: `Context from patient documents:\n\n${context}\n\nQuestion: ${question}`
       }
     ],
-    max_tokens: 1000,
+    max_completion_tokens: 1000,
   });
 
   return response.choices[0]?.message?.content || "I couldn't generate a response. Please try again.";
