@@ -40,7 +40,10 @@ export function startTelegramBot() {
       `- Provide gentle guidance and support\n` +
       `- Answer questions about your wellbeing\n\n` +
       `First, let's link your patient profile.\n` +
-      `Please send me your Patient Profile ID (you can find it in the web app dashboard).`,
+      `You can:\n` +
+      `- Send your Profile ID number (shown on the web dashboard)\n` +
+      `- Type your name to search\n` +
+      `- Use /link <id> command`,
       { parse_mode: "HTML" }
     );
     session.awaitingLink = true;
@@ -200,7 +203,30 @@ export function startTelegramBot() {
           );
           return;
         } else {
-          await bot!.sendMessage(chatId, "Profile not found. Please check the ID and try again, or use /link <id>");
+          await bot!.sendMessage(chatId, "Profile not found. Please check the ID and try again, or type your name to search.");
+          return;
+        }
+      }
+
+      const searchName = msg.text.trim().toLowerCase();
+      if (searchName.length >= 2) {
+        const allProfiles = await db.select().from(patientProfiles).execute();
+        const matches = allProfiles.filter(p => p.name.toLowerCase().includes(searchName));
+
+        if (matches.length === 1) {
+          session.patientId = matches[0].id;
+          session.awaitingLink = false;
+          await bot!.sendMessage(chatId,
+            `Profile linked: ${matches[0].name}\n\n` +
+            `You can now send voice messages or type to chat with your care companion.`
+          );
+          return;
+        } else if (matches.length > 1) {
+          const list = matches.map(p => `  /link ${p.id} - ${p.name}`).join("\n");
+          await bot!.sendMessage(chatId, `Multiple profiles found:\n\n${list}\n\nTap the one you want.`);
+          return;
+        } else {
+          await bot!.sendMessage(chatId, "No profiles found with that name. Please try again or use /link <id>.");
           return;
         }
       }

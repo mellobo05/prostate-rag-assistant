@@ -107,6 +107,9 @@ export default function Dashboard() {
                   <Activity className="w-4 h-4" />
                   Stage: {profile.stage || "Not specified"}
                 </div>
+                <div className="flex items-center gap-2 mt-2 px-2 py-1 bg-primary/5 rounded-lg text-xs font-mono text-primary" data-testid={`text-profile-id-${profile.id}`}>
+                  Telegram Bot ID: <span className="font-bold ml-1">{profile.id}</span>
+                </div>
               </div>
             </motion.div>
           ))}
