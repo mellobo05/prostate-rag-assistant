@@ -115,11 +115,143 @@ export function startTelegramBot() {
       `/start - Welcome message\n` +
       `/link <id> - Link your patient profile\n` +
       `/status - View your profile summary\n` +
+      `/summary - Detailed medical summary\n` +
       `/help - Show this help message\n\n` +
       `You can also:\n` +
       `- Send a voice message to talk about symptoms\n` +
       `- Type any message to chat with your care companion`
     );
+  });
+
+  bot.onText(/\/summary/, async (msg) => {
+    const chatId = msg.chat.id;
+    const session = getSession(chatId);
+
+    if (!session.patientId) {
+      await bot!.sendMessage(chatId, "No profile linked. Use /link <profile_id> to connect your patient profile.");
+      return;
+    }
+
+    const profile = await storage.getProfile(session.patientId);
+    if (!profile) {
+      session.patientId = null;
+      await bot!.sendMessage(chatId, "Profile no longer exists. Use /link <profile_id> to connect a new one.");
+      return;
+    }
+
+    await bot!.sendMessage(chatId, "Preparing your medical summary... please wait a moment.");
+    await bot!.sendChatAction(chatId, "typing");
+
+    try {
+      const reports = await storage.getReports(session.patientId);
+
+      const psaReports = reports
+        .filter(r => r.reportType === "PSA" && r.psaLevel)
+        .sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime());
+      const last3Psa = psaReports.slice(0, 3);
+
+      const petScans = reports
+        .filter(r => r.reportType === "PET Scan")
+        .sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime());
+      const latestPet = petScans[0] || null;
+
+      const bloodTests = reports
+        .filter(r => r.reportType === "Blood Test" || r.reportType === "Other")
+        .sort((a, b) => new Date(b.reportDate).getTime() - new Date(a.reportDate).getTime());
+      const latestBlood = bloodTests[0] || null;
+
+      const formatDate = (d: Date | string) => {
+        const dt = new Date(d);
+        return dt.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+      };
+
+      let summaryParts: string[] = [];
+
+      summaryParts.push(`Patient: ${profile.name}`);
+      summaryParts.push(`Cancer Type: ${profile.cancerType || "Not specified"}`);
+      summaryParts.push(`Stage: ${profile.stage || "Not specified"}`);
+      summaryParts.push("");
+
+      if (last3Psa.length > 0) {
+        summaryParts.push("--- PSA Trend (Last 3) ---");
+        for (const psa of last3Psa) {
+          summaryParts.push(`  ${formatDate(psa.reportDate)}: ${psa.psaLevel} ng/mL`);
+        }
+        if (last3Psa.length >= 2) {
+          const newest = parseFloat(last3Psa[0].psaLevel!);
+          const oldest = parseFloat(last3Psa[last3Psa.length - 1].psaLevel!);
+          if (newest > oldest) {
+            summaryParts.push(`  Trend: Rising (${oldest} -> ${newest})`);
+          } else if (newest < oldest) {
+            summaryParts.push(`  Trend: Decreasing (${oldest} -> ${newest})`);
+          } else {
+            summaryParts.push(`  Trend: Stable`);
+          }
+        }
+      } else {
+        summaryParts.push("--- PSA ---\n  No PSA data recorded yet.");
+      }
+      summaryParts.push("");
+
+      if (profile.medicalHistory) {
+        const historyPreview = profile.medicalHistory.length > 500
+          ? profile.medicalHistory.substring(0, 500) + "..."
+          : profile.medicalHistory;
+        summaryParts.push("--- Treatment / History ---");
+        summaryParts.push(historyPreview);
+      } else {
+        summaryParts.push("--- Treatment / History ---\n  No treatment history recorded yet.");
+      }
+      summaryParts.push("");
+
+      if (latestBlood) {
+        summaryParts.push("--- Latest Medical Test ---");
+        summaryParts.push(`  Date: ${formatDate(latestBlood.reportDate)}`);
+        summaryParts.push(`  Type: ${latestBlood.reportType}`);
+        if (latestBlood.findings) {
+          const findingsPreview = latestBlood.findings.length > 400
+            ? latestBlood.findings.substring(0, 400) + "..."
+            : latestBlood.findings;
+          summaryParts.push(`  Findings: ${findingsPreview}`);
+        }
+      } else {
+        summaryParts.push("--- Latest Medical Test ---\n  No test reports recorded yet.");
+      }
+      summaryParts.push("");
+
+      if (latestPet) {
+        summaryParts.push("--- Latest PET Scan ---");
+        summaryParts.push(`  Date: ${formatDate(latestPet.reportDate)}`);
+        if (latestPet.findings) {
+          const findingsPreview = latestPet.findings.length > 400
+            ? latestPet.findings.substring(0, 400) + "..."
+            : latestPet.findings;
+          summaryParts.push(`  Findings: ${findingsPreview}`);
+        }
+      } else {
+        summaryParts.push("--- Latest PET Scan ---\n  No PET scan recorded yet.");
+      }
+
+      const fullSummary = summaryParts.join("\n");
+
+      if (fullSummary.length > 4000) {
+        const chunks = [];
+        let remaining = fullSummary;
+        while (remaining.length > 0) {
+          chunks.push(remaining.substring(0, 4000));
+          remaining = remaining.substring(4000);
+        }
+        for (const chunk of chunks) {
+          await bot!.sendMessage(chatId, chunk);
+        }
+      } else {
+        await bot!.sendMessage(chatId, fullSummary);
+      }
+
+    } catch (error) {
+      console.error("[telegram] Summary error:", error);
+      await bot!.sendMessage(chatId, "Sorry, I had trouble preparing the summary. Please try again.");
+    }
   });
 
   bot.on("voice", async (msg) => {
