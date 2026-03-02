@@ -182,4 +182,4 @@ The app will be available at `http://localhost:5000`.
 
 ## License
 
-MIT
+melanieharriet05@gmail.com
